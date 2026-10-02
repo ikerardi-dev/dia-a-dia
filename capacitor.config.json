@@ -1,0 +1,17 @@
+{
+  "appId": "dev.ikerardi.diaadia",
+  "appName": "Día a Día",
+  "webDir": "dist",
+  "android": {
+    "backgroundColor": "#EDF0F3"
+  },
+  "plugins": {
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_diaadia",
+      "iconColor": "#2B5D8A"
+    },
+    "CapacitorSQLite": {
+      "androidIsEncryption": false
+    }
+  }
+}

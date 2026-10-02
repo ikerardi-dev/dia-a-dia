@@ -1,0 +1,20 @@
+.wallet { display: flex; flex-direction: column; gap: 2px; }
+.wallet b { font-size: 28px; font-weight: 800; letter-spacing: -.02em; }
+.wallet b.neg { color: var(--bad); }
+
+.rewards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.reward {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-l); padding: 14px;
+}
+.reward.ready { border-color: var(--good); }
+.reward-top { display: flex; align-items: center; gap: 12px; }
+.reward-top .body { flex: 1; min-width: 0; }
+.reward-top .name { font-weight: 700; }
+.reward-top .meta { font-size: 13px; color: var(--muted); }
+.reward-icon {
+  width: 46px; height: 46px; flex: none; border-radius: 14px;
+  background: var(--surface-2); display: grid; place-items: center; font-size: 24px;
+}
+.reward .progress i { background: var(--accent); }
+.reward.ready .progress i { background: var(--good); }

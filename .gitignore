@@ -1,0 +1,16 @@
+node_modules
+dist
+.DS_Store
+
+# Android
+android/app/build
+android/build
+android/.gradle
+android/local.properties
+android/app/src/main/assets/public
+android/capacitor-cordova-android-plugins/build
+
+# Tu clave de firma NUNCA se sube al repositorio
+*.jks
+*.keystore
+android/keystore.properties

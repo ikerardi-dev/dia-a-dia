@@ -1,0 +1,8 @@
+.slot { display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: stretch; }
+.slot + .slot { margin-top: 8px; }
+.time { font-size: 13px; font-weight: 700; color: var(--muted); padding-top: 12px; text-align: right; }
+.time.now { color: var(--accent); }
+.unplaced { margin-top: 8px; }
+
+.card.wild { background: var(--wild-soft); border-color: color-mix(in srgb, var(--wild) 35%, transparent); }
+.card.wild .lead { color: var(--wild); }

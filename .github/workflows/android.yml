@@ -1,0 +1,61 @@
+name: Generar APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    env:
+      # Los secretos no se pueden usar directamente en un "if", así que se pasan por aquí
+      HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Probar el backend
+        run: npm run test:backend
+
+      - name: Compilar la web y copiarla a Android
+        run: npm run android:sync
+
+      - name: Preparar la clave de firma
+        if: env.HAS_KEYSTORE == 'true'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > android/diaadia.jks
+          cat > android/keystore.properties <<PROPS
+          storeFile=diaadia.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=diaadia
+          keyPassword=$KEYSTORE_PASSWORD
+          PROPS
+
+      - name: Generar el APK
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dia-a-dia-apk
+          path: android/app/build/outputs/apk/release/*.apk
