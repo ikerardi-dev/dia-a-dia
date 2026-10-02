@@ -6,6 +6,8 @@ import initSqlJs from 'sql.js';
 import { createSqlJsAdapter } from '../src/backend/db/adapters/sqljsAdapter.js';
 import { api } from '../src/backend/api.js';
 import { setClock } from '../src/backend/utils/clock.js';
+import { initDatabase, getDb } from '../src/backend/db/database.js';
+import { MIGRATIONS } from '../src/backend/db/schema.js';
 
 let failures = 0;
 const check = (label, condition, extra = '') => {
@@ -86,9 +88,107 @@ check('Medalla de recompensa desbloqueada', merits.medals.find(m => m.id === 're
 const month = await api.month(2026, 9);
 check('Calendario de octubre con 35 casillas', month.cells.length === 35, String(month.cells.length));
 
+// --- Fecha de inicio, tareas de una vez y sin fecha (miércoles 7) ---
+const base = { icon: '📮', points: 10, pref: 'manana', duration: 20 };
+await api.createTask({ ...base, name: 'Ir a Correos', freq: { type: 'once' }, startDate: '2026-10-08' });
+await api.createTask({ ...base, name: 'Regar', freq: { type: 'interval', every: 2 }, startDate: '2026-10-09' });
+await api.createTask({ ...base, name: 'Sacar la basura', points: 5, freq: { type: 'anytime' } });
+await expectError('Fecha anterior a hoy', () => api.createTask({ ...base, name: 'X', freq: { type: 'once' }, startDate: '2026-10-01' }), 'PAST_DATE');
+
+today = await api.today();
+check('Correos no aparece hoy', !today.all.some(i => i.task.name === 'Ir a Correos'));
+check('Regar aún no ha empezado', !today.all.some(i => i.task.name === 'Regar'));
+check('La basura sale en "Cuando puedas"', today.anytime.some(t => t.name === 'Sacar la basura'));
+const jueves = await api.day('2026-10-08');
+check('Correos aparece el jueves', jueves.all.some(i => i.task.name === 'Ir a Correos'));
+const viernes = await api.day('2026-10-09');
+check('Regar empieza el viernes', viernes.all.some(i => i.task.name === 'Regar'));
+check('Regar no toca el sábado', !(await api.day('2026-10-10')).all.some(i => i.task.name === 'Regar'));
+
+const basura = today.anytime.find(t => t.name === 'Sacar la basura');
+const before = await api.balance();
+r = await api.completeAnytime(basura.id);
+check('La basura suma 5', r.balance === before + 5);
+today = await api.today();
+check('Ya no está en "Cuando puedas"', !today.anytime.length);
+const doneBasura = today.done.find(i => i.task.name === 'Sacar la basura');
+check('Aparece en "Hecho hoy"', !!doneBasura);
+await api.undoTask(doneBasura.id);
+today = await api.today();
+check('Deshacer la devuelve a "Cuando puedas"', today.anytime.length === 1 && (await api.balance()) === before);
+
+goTo(2026, 9, 9, 9, 0); // viernes: Correos (jueves) se quedó sin hacer
+await api.refresh();
+today = await api.today();
+check('Correos no hecho pasa al viernes como aplazada', today.all.some(i => i.task.name === 'Ir a Correos' && i.carried === 1));
+check('La basura sigue esperando sin restar', today.anytime.length === 1);
+
+// --- Eventos (viernes 9) ---
+const padel = await api.createBusy({ label: 'Pádel', icon: '⚽', from: '19:00', to: '20:30', date: '2026-10-10', reminder: 30, syncCalendar: true });
+const oct = await api.month(2026, 9);
+check('El pádel sale en el calendario del sábado', oct.cells.find(c => c.date === '2026-10-10').events.some(e => e.label === 'Pádel'));
+let items = await api.calendarItems();
+let padelItem = items.find(i => i.kind === 'busy' && i.id === padel);
+check('El pádel se enviará al móvil con aviso 30 min antes', padelItem?.wanted && padelItem.alerts[0] === -30);
+await api.setCalendarLink('busy', padel, 'cal-1', padelItem.hash);
+padelItem = (await api.calendarItems()).find(i => i.id === padel && i.kind === 'busy');
+check('Tras enviarlo, no hay cambios pendientes', padelItem.hash === padelItem.savedHash);
+const sabado = await api.day('2026-10-10');
+check('Las tareas del sábado esquivan el pádel', sabado.schedule.slots.every(sl => sl.end <= 19 * 60 || sl.start >= 20.5 * 60));
+await api.deleteBusy(padel);
+padelItem = (await api.calendarItems()).find(i => i.id === padel && i.kind === 'busy');
+check('Al borrarlo, se quitará del móvil', padelItem && !padelItem.wanted && padelItem.eventId === 'cal-1');
+await expectError('Aviso no válido', () => api.createBusy({ from: '10:00', to: '11:00', date: '2026-10-10', reminder: 7 }), 'INVALID_REMINDER');
+
+// --- Tiempo máximo al día ---
+await api.updateSettings({ maxTaskMinutes: 150 });
+today = await api.today();
+const gymMoved = today.moved.find(i => i.task.name === 'Ir al gimnasio');
+check('Con límite de 2 h 30 min, el gimnasio se reparte a otro día', gymMoved?.autoMoved && gymMoved.movedTo === '2026-10-10', gymMoved?.movedTo);
+check('Hoy queda dentro del límite', today.plannedMinutes <= 150, String(today.plannedMinutes));
+check('Las diarias no se mueven', today.all.some(i => i.task.name === 'Fregar los platos' && i.status === 'pending'));
+const sat = await api.day('2026-10-10');
+check('El sábado aparece el gimnasio repartido', sat.all.some(i => i.task.name === 'Ir al gimnasio' && i.autoMoved));
+today = await api.today();
+check('Volver a abrir Hoy no mueve nada más', today.moved.filter(i => i.autoMoved).length === 1);
+await api.updateSettings({ maxTaskMinutes: 0 });
+
+// --- Tarea de una vez enviada al móvil ---
+const dentista = await api.createTask({ name: 'Dentista', icon: '🦷', points: 10, freq: { type: 'once' }, startDate: '2026-10-12', time: '10:00', duration: 45, syncCalendar: true });
+items = await api.calendarItems();
+const dent = items.find(i => i.kind === 'task' && i.id === dentista);
+check('La tarea de una vez se envía con su hora', dent?.wanted && dent.from === '10:00' && dent.to === '10:45' && !dent.allDay);
+
 // --- Validaciones ---
 await expectError('Tarea sin nombre', () => api.createTask({ name: ' ', points: 10, freq: { type: 'daily' } }), 'NAME_REQUIRED');
 await expectError('Horario al revés', () => api.createBusy({ from: '15:00', to: '09:00', days: [1] }), 'INVALID_RANGE');
+
+// --- Migración desde la versión 1 (una base de datos como la que ya tienes en el móvil) ---
+{
+  const legacy = createSqlJsAdapter(SQL);
+  await legacy.exec('PRAGMA foreign_keys = ON;');
+  await legacy.exec('CREATE TABLE schema_version (version INTEGER NOT NULL); INSERT INTO schema_version VALUES (1);');
+  await legacy.exec(MIGRATIONS[1]);
+  await legacy.exec(`
+    INSERT INTO tasks (id, name, icon, points, freq_type, pref, duration, start_date)
+      VALUES (7, 'Fregar', '🍽️', 10, 'daily', 'noche', 20, '2026-10-01');
+    INSERT INTO days (date, generated) VALUES ('2026-10-01', 1);
+    INSERT INTO task_instances (id, task_id, date, status) VALUES (1, 7, '2026-10-01', 'done');
+    INSERT INTO points_ledger (date, amount, kind, instance_id) VALUES ('2026-10-01', 10, 'task_done', 1);
+  `);
+  await initDatabase(legacy);
+  const v = await getDb().get('SELECT version FROM schema_version');
+  const t = await getDb().get('SELECT * FROM tasks WHERE id = 7');
+  const fk = await getDb().all('PRAGMA foreign_key_check');
+  const points = await getDb().get('SELECT SUM(amount) AS s FROM points_ledger');
+  check('Migración: versión 3', v.version === 3);
+  check('Migración: la tarea se conserva', t?.name === 'Fregar' && t.completed_at === null);
+  check('Migración: historial y puntos intactos', points.s === 10 && fk.length === 0);
+  await getDb().run("INSERT INTO tasks (name, icon, points, freq_type, start_date) VALUES ('Basura', '🗑️', 5, 'anytime', '2026-10-02')");
+  check('Migración: acepta tareas sin fecha', (await getDb().get("SELECT COUNT(*) AS n FROM tasks WHERE freq_type = 'anytime'")).n === 1);
+  const seq = await getDb().get("SELECT id FROM tasks WHERE name = 'Basura'");
+  check('Migración: los ids siguen después del último', seq.id === 8);
+}
 
 console.log(failures ? `\n${failures} prueba(s) fallida(s)` : '\nTodo correcto');
 process.exit(failures ? 1 : 0);

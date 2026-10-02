@@ -2,31 +2,29 @@ import { useState } from 'react';
 import Sheet from '../components/Sheet.jsx';
 import OptionChips from '../components/OptionChips.jsx';
 import IconPicker from '../components/IconPicker.jsx';
-import { TASK_ICONS, PREFS, POINT_PRESETS, DURATIONS } from '../lib/catalog.js';
-import { WEEK, DOW_SHORT } from '../lib/format.js';
+import Toggle from '../components/Toggle.jsx';
+import { phoneCalendarSupported, ensureCalendarPermission } from '../lib/phoneCalendar.js';
+import { TASK_ICONS, PREFS, POINT_PRESETS, DURATIONS, FREQS } from '../lib/catalog.js';
+import { WEEK, DOW_SHORT, todayStr } from '../lib/format.js';
 
-const EMPTY = {
+const empty = () => ({
   name: '', icon: TASK_ICONS[0], points: 10,
   freq: { type: 'daily', every: 2, days: [1, 3, 5] },
-  pref: 'tarde', time: '', duration: 30
-};
+  pref: 'tarde', time: '', duration: 30, startDate: todayStr()
+});
 
-const FREQS = [
-  { value: 'daily', label: 'Cada día' },
-  { value: 'interval', label: 'Cada X días' },
-  { value: 'weekdays', label: 'Días concretos' }
-];
-
-export default function TaskForm({ task, onSave, onDelete, onClose }) {
+export default function TaskForm({ task, onSave, onDelete, onClose, toast }) {
   const initial = task
-    ? { ...task, freq: { type: task.freq.type, every: task.freq.every ?? 2, days: task.freq.days.length ? task.freq.days : [1, 3, 5] } }
-    : EMPTY;
+    ? { ...task, freq: { type: task.freq.type, every: task.freq.every ?? 2, days: task.freq.days.length ? task.freq.days : [1, 3, 5] }, startDate: task.startDate }
+    : empty();
   const [form, setForm] = useState(initial);
   const [customPoints, setCustomPoints] = useState(!POINT_PRESETS.some(p => p.value === initial.points));
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const set = (key, value) => setForm(f => ({ ...f, [key]: value }));
+  const type = form.freq.type;
+  const today = todayStr();
   const setFreq = (key, value) => setForm(f => ({ ...f, freq: { ...f.freq, [key]: value } }));
 
   const submit = async e => {
@@ -39,7 +37,9 @@ export default function TaskForm({ task, onSave, onDelete, onClose }) {
       freq: { type: form.freq.type, every: Number(form.freq.every), days: form.freq.days },
       pref: form.pref,
       time: form.time,
-      duration: Number(form.duration)
+      duration: Number(form.duration),
+      startDate: form.startDate,
+      syncCalendar: type === 'once' && !!form.syncCalendar
     });
     setSaving(false);
     setError(err);
@@ -95,23 +95,57 @@ export default function TaskForm({ task, onSave, onDelete, onClose }) {
           )}
         </div>
 
-        <div className="field">
-          <span className="lbl">Mejor momento</span>
-          <OptionChips name="pref" options={PREFS} value={form.pref} onChange={v => set('pref', v)} />
-        </div>
+        {type !== 'anytime' && (
+          <div className="field">
+            <label htmlFor="t-start">{type === 'once' ? 'Qué día' : 'Empieza el'}</label>
+            <input
+              id="t-start"
+              type="date"
+              min={task?.startDate && task.startDate < today ? task.startDate : today}
+              value={form.startDate}
+              onChange={e => set('startDate', e.target.value)}
+            />
+          </div>
+        )}
+
+        {type === 'anytime' ? (
+          <p className="hint">Aparecerá en Hoy, en "Cuando puedas". No resta puntos si pasan los días y suma el día que la hagas.</p>
+        ) : (
+          <div className="field">
+            <span className="lbl">Mejor momento</span>
+            <OptionChips name="pref" options={PREFS} value={form.pref} onChange={v => set('pref', v)} />
+          </div>
+        )}
 
         <div className="two">
+          {type !== 'anytime' && (
+            <div className="field">
+              <label htmlFor="t-time">Hora fija (opcional)</label>
+              <input id="t-time" type="time" value={form.time} onChange={e => set('time', e.target.value)} />
+            </div>
+          )}
           <div className="field">
-            <label htmlFor="t-time">Hora fija (opcional)</label>
-            <input id="t-time" type="time" value={form.time} onChange={e => set('time', e.target.value)} />
-          </div>
-          <div className="field">
-            <label htmlFor="t-dur">Duración</label>
+            <label htmlFor="t-dur">{type === 'anytime' ? 'Duración aproximada' : 'Duración'}</label>
             <select id="t-dur" value={form.duration} onChange={e => set('duration', Number(e.target.value))}>
               {DURATIONS.map(d => <option key={d} value={d}>{d} min</option>)}
             </select>
           </div>
         </div>
+
+        {type === 'once' && phoneCalendarSupported() && (
+          <Toggle
+            id="t-sync"
+            label="Añadir al calendario del móvil"
+            hint={form.time ? 'Se añade a su hora.' : 'Sin hora fija se añade como evento de todo el día.'}
+            checked={!!form.syncCalendar}
+            onBeforeEnable={async () => {
+              const ok = await ensureCalendarPermission();
+              if (!ok) toast('Android no ha dado permiso para el calendario. Actívalo en Ajustes > Apps > Día a Día > Permisos.', 6000);
+              return ok;
+            }}
+            onChange={v => set('syncCalendar', v)}
+          />
+        )}
 
         {error && <p className="form-error" role="alert">{error}</p>}
 

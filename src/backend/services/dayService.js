@@ -14,6 +14,7 @@ import { buildSchedule, busyForDate } from './scheduleService.js';
 import { isDue, penaltyFor, computeDayStatus, MAX_CARRY, MAX_CATCHUP_DAYS } from './rules.js';
 import { todayStr, addDays, diffDays, nowMinutes, fromMin, weekStart } from '../utils/dates.js';
 import { assert } from '../utils/errors.js';
+import { balanceToday } from './balanceService.js';
 
 /* ---------- Generación y cierre de días ---------- */
 
@@ -111,7 +112,10 @@ export const dismissNotice = () => settingsRepository.set('notice', '');
 
 export async function getDayView(date) {
   const today = todayStr();
-  if (date === today) await ensureDayGenerated(today);
+  if (date === today) {
+    await ensureDayGenerated(today);
+    await balanceToday();
+  }
 
   const [allTasks, blocks, settings, day, stored, amounts] = await Promise.all([
     taskRepository.findAll({ includeDeleted: true }),
@@ -161,9 +165,21 @@ export async function getDayView(date) {
   const earned = items.reduce((a, i) => a + (i.points > 0 ? i.points : 0), 0);
   const lost = items.reduce((a, i) => a + (i.points < 0 ? -i.points : 0), 0);
 
+  const { maxTaskMinutes } = settings;
+  const plannedMinutes = items
+    .filter(i => i.status === 'pending' || i.status === 'done')
+    .reduce((sum, i) => sum + i.task.duration, 0);
+
+  const anytime = date === today
+    ? allTasks.filter(t => !t.deleted && t.freq.type === 'anytime' && !t.completedAt)
+    : [];
+
   return {
     date,
     isToday: date === today,
+    anytime,
+    maxTaskMinutes,
+    plannedMinutes,
     isPast: date < today,
     wildcard,
     status: computeDayStatus({
@@ -203,14 +219,37 @@ export async function completeInstance(instanceId) {
   return { points: task.points, balance: await pointsRepository.balance() };
 }
 
+/** Las tareas sin fecha se apuntan al día en que las haces */
+export async function completeAnytime(taskId) {
+  const task = await taskRepository.findById(taskId);
+  assert(task && !task.deleted && task.freq.type === 'anytime', 'NOT_FOUND', 'Esa tarea ya no existe.');
+  assert(!task.completedAt, 'ALREADY_DONE', 'Esa tarea ya está hecha.');
+  const today = todayStr();
+  await getDb().transaction(async () => {
+    await dayRepository.ensure(today);
+    const id = await instanceRepository.create({ taskId: task.id, date: today });
+    await instanceRepository.setStatus(id, 'done', fromMin(nowMinutes()));
+    await pointsRepository.add({ date: today, amount: task.points, kind: 'task_done', instanceId: id });
+    await taskRepository.setCompleted(task.id, today);
+  });
+  return { points: task.points, balance: await pointsRepository.balance() };
+}
+
 export async function undoInstance(instanceId) {
   const inst = await instanceRepository.findById(instanceId);
   assert(inst && inst.status === 'done' && inst.date === todayStr(), 'CANNOT_UNDO', 'Solo puedes deshacer tareas completadas hoy.');
   const entries = await pointsRepository.forInstance(inst.id);
   const amount = entries.filter(e => e.kind === 'task_done').reduce((a, e) => a + e.amount, 0);
+  const task = await taskRepository.findById(inst.taskId);
   await getDb().transaction(async () => {
-    await instanceRepository.setStatus(inst.id, 'pending', null);
     await pointsRepository.removeForInstance(inst.id, 'task_done');
+    if (task.freq.type === 'anytime') {
+      // No tenía día asignado: se borra el registro y vuelve a "Cuando puedas"
+      await instanceRepository.remove(inst.id);
+      await taskRepository.setCompleted(task.id, null);
+    } else {
+      await instanceRepository.setStatus(inst.id, 'pending', null);
+    }
   });
   return { points: -amount, balance: await pointsRepository.balance() };
 }
@@ -237,7 +276,7 @@ export async function moveToTomorrow(instanceId) {
   assert(!isDue(task, tomorrow), 'DUE_TOMORROW', 'Mañana ya te toca esta tarea.');
 
   await getDb().transaction(async () => {
-    await instanceRepository.setStatus(inst.id, 'moved');
+    await instanceRepository.markMoved(inst.id, tomorrow);
     await dayRepository.ensure(tomorrow);
     await instanceRepository.create({ taskId: task.id, date: tomorrow, carried: inst.carried + 1, fromDate: inst.date });
   });

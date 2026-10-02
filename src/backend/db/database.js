@@ -22,11 +22,20 @@ export async function initDatabase(adapter) {
     row = { version: 0 };
   }
 
-  for (let v = row.version + 1; v <= SCHEMA_VERSION; v++) {
-    await db.transaction(async () => {
-      await db.exec(MIGRATIONS[v]);
-      await db.run('UPDATE schema_version SET version = ?', [v]);
-    });
+  if (row.version < SCHEMA_VERSION) {
+    // Algunas migraciones rehacen tablas: las claves foráneas se desactivan
+    // mientras tanto (no se puede hacer dentro de una transacción)
+    await db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      for (let v = row.version + 1; v <= SCHEMA_VERSION; v++) {
+        await db.transaction(async () => {
+          await db.exec(MIGRATIONS[v]);
+          await db.run('UPDATE schema_version SET version = ?', [v]);
+        });
+      }
+    } finally {
+      await db.exec('PRAGMA foreign_keys = ON;');
+    }
   }
 }
 

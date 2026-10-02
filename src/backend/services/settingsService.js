@@ -2,6 +2,9 @@ import { settingsRepository } from '../repositories/settingsRepository.js';
 import { assert } from '../utils/errors.js';
 import { toMin } from '../utils/dates.js';
 
+/** 0 = sin límite */
+export const MAX_OPTIONS = [0, 60, 90, 120, 150, 180, 240];
+
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 export async function getSettings() {
@@ -11,7 +14,8 @@ export async function getSettings() {
     sleep: s.sleep,
     penaltyPct: Number(s.penalty_pct),
     notify: s.notify === '1',
-    wildcardsPerWeek: Number(s.wildcards_per_week)
+    wildcardsPerWeek: Number(s.wildcards_per_week),
+    maxTaskMinutes: Number(s.max_task_minutes)
   };
 }
 
@@ -25,10 +29,13 @@ export async function updateSettings(changes) {
   assert(Number.isInteger(next.wildcardsPerWeek) && next.wildcardsPerWeek >= 0 && next.wildcardsPerWeek <= 3,
     'INVALID_WILDCARDS', 'Puedes tener de 0 a 3 comodines por semana.');
 
+  assert(MAX_OPTIONS.includes(next.maxTaskMinutes), 'INVALID_MAX', 'El tiempo máximo no es válido.');
+
   await settingsRepository.set('wake', next.wake);
   await settingsRepository.set('sleep', next.sleep);
   await settingsRepository.set('penalty_pct', next.penaltyPct);
   await settingsRepository.set('notify', next.notify ? '1' : '0');
   await settingsRepository.set('wildcards_per_week', next.wildcardsPerWeek);
+  await settingsRepository.set('max_task_minutes', next.maxTaskMinutes);
   return next;
 }

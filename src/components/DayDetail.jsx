@@ -13,7 +13,7 @@ export default function DayDetail({ date, version, open }) {
   const header = (
     <div className="spread detail-head">
       <h3>{longDate(date)}</h3>
-      {!day.isPast && open && <button className="btn sm" onClick={() => open.busy(null, date)}>＋ Ocupado este día</button>}
+      {!day.isPast && open && <button className="btn sm" onClick={() => open.busy(null, date)}>＋ Evento</button>}
     </div>
   );
 

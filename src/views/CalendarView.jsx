@@ -35,6 +35,9 @@ export default function CalendarView({ version, open }) {
             return (
               <button key={cell.date} className={cls} aria-label={longDate(cell.date)} onClick={() => setSelected(cell.date)}>
                 <span className="n">{parseYmd(cell.date).getDate()}</span>
+                {cell.events.length > 0 && (
+                  <span className="cell-events">{cell.events.slice(0, 2).map((e, k) => <span key={k} title={`${e.label} ${e.from}`}>{e.icon}</span>)}</span>
+                )}
                 <span className="icons">
                   {cell.status === 'wildcard'
                     ? <span>🃏</span>
@@ -53,6 +56,7 @@ export default function CalendarView({ version, open }) {
           <span><i className="lg partial" />A medias</span>
           <span><i className="lg bad" />No cumplido</span>
           <span><i className="lg wildcard" />Comodín</span>
+          <span><i className="lg event" />Evento</span>
         </div>
       </section>
 

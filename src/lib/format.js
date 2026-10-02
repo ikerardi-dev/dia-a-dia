@@ -18,6 +18,12 @@ export const shortDate = s => {
   return `${DOW[d.getDay()].slice(0, 3)} ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`;
 };
 
+export const duration = minutes => {
+  const h = Math.floor(minutes / 60), m = minutes % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${m} min` : `${h} h`;
+};
+
 export const fmt = n => n.toLocaleString('es-ES');
 export const signed = n => (n > 0 ? `+${fmt(n)}` : fmt(n));
 

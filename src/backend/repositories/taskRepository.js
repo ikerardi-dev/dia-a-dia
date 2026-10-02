@@ -14,6 +14,10 @@ const toTask = (row, weekdays) => ({
   time: row.fixed_time || '',
   duration: row.duration,
   startDate: row.start_date,
+  completedAt: row.completed_at || null,
+  syncCalendar: !!row.sync_calendar,
+  calendarEventId: row.calendar_event_id || null,
+  calendarHash: row.calendar_hash || null,
   deleted: !!row.deleted
 });
 
@@ -53,12 +57,12 @@ export const taskRepository = {
 
   async create(task) {
     const { lastId } = await getDb().run(
-      `INSERT INTO tasks (name, icon, points, freq_type, freq_every, pref, fixed_time, duration, start_date)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO tasks (name, icon, points, freq_type, freq_every, pref, fixed_time, duration, start_date, sync_calendar)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         task.name, task.icon, task.points, task.freq.type,
         task.freq.type === 'interval' ? task.freq.every : null,
-        task.pref, task.time || null, task.duration, task.startDate
+        task.pref, task.time || null, task.duration, task.startDate, task.syncCalendar ? 1 : 0
       ]
     );
     if (task.freq.type === 'weekdays') await saveWeekdays(lastId, task.freq.days);
@@ -68,15 +72,24 @@ export const taskRepository = {
   async update(id, task) {
     await getDb().run(
       `UPDATE tasks SET name = ?, icon = ?, points = ?, freq_type = ?, freq_every = ?,
-              pref = ?, fixed_time = ?, duration = ?
+              pref = ?, fixed_time = ?, duration = ?, start_date = ?, sync_calendar = ?
        WHERE id = ?`,
       [
         task.name, task.icon, task.points, task.freq.type,
         task.freq.type === 'interval' ? task.freq.every : null,
-        task.pref, task.time || null, task.duration, id
+        task.pref, task.time || null, task.duration, task.startDate, task.syncCalendar ? 1 : 0, id
       ]
     );
     await saveWeekdays(id, task.freq.type === 'weekdays' ? task.freq.days : []);
+  },
+
+  /** Tareas sin fecha: marca (o desmarca con null) el día en que se hizo */
+  async setCompleted(id, date) {
+    await getDb().run('UPDATE tasks SET completed_at = ? WHERE id = ?', [date, id]);
+  },
+
+  async setCalendarLink(id, eventId, hash) {
+    await getDb().run('UPDATE tasks SET calendar_event_id = ?, calendar_hash = ? WHERE id = ?', [eventId, hash, id]);
   },
 
   /** Borrado lógico: la tarea desaparece pero su historial se conserva */

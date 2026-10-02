@@ -18,12 +18,15 @@ export function isDue(task, date) {
   if (type === 'daily') return true;
   if (type === 'interval') return diffDays(task.startDate, date) % Math.max(2, every) === 0;
   if (type === 'weekdays') return days.includes(weekday(date));
-  return false;
+  if (type === 'once') return date === task.startDate;
+  return false; // 'anytime': no se programa en ningún día
 }
 
 export function describeFreq(freq) {
   if (freq.type === 'daily') return 'Cada día';
   if (freq.type === 'interval') return `Cada ${freq.every} días`;
+  if (freq.type === 'once') return 'Una vez';
+  if (freq.type === 'anytime') return 'Sin fecha';
   return WEEK_ORDER.filter(d => freq.days.includes(d)).map(d => DOW_SHORT[d]).join(' ');
 }
 

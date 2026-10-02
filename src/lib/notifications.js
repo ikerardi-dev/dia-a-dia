@@ -6,7 +6,7 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications } from '@capacitor/local-notifications';
 import { api } from '../backend/api.js';
-import { parseYmd, addDays, todayStr } from '../backend/utils/dates.js';
+import { parseYmd, addDays, todayStr, toMin } from '../backend/utils/dates.js';
 
 const CHANNEL_ID = 'retos';
 const DAYS_AHEAD = 3;          // hoy y los dos días siguientes
@@ -94,6 +94,29 @@ async function buildReminders(exact) {
       });
     }
   }
+  // Eventos con aviso (los enviados al calendario del móvil ya avisa Google Calendar)
+  const events = await api.events(today, addDays(today, DAYS_AHEAD - 1));
+  for (const ev of events) {
+    if (ev.reminder == null || ev.syncCalendar) continue;
+    const at = parseYmd(ev.date);
+    const start = toMin(ev.from) - ev.reminder;
+    at.setHours(0, 0, 0, 0);
+    at.setMinutes(start);
+    if (at.getTime() < now + 60_000) continue;
+    list.push({
+      id: idFor(`event-${ev.id}-${ev.date}-${ev.from}`),
+      title: `${ev.icon} ${ev.label}`,
+      body: `A las ${ev.from}`,
+      channelId: CHANNEL_ID,
+      smallIcon: 'ic_stat_diaadia',
+      iconColor: '#2B5D8A',
+      autoCancel: true,
+      isExactNotification: exact,
+      schedule: { at, allowWhileIdle: true }
+    });
+  }
+
+  list.sort((a, b) => a.schedule.at - b.schedule.at);
   return list.slice(0, MAX_SCHEDULED);
 }
 

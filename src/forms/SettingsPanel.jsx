@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import NotificationSettings from './NotificationSettings.jsx';
+import { MAX_TASK_TIME } from '../lib/catalog.js';
 
 const PENALTIES = [25, 50, 75, 100];
 
@@ -43,7 +44,15 @@ export default function SettingsPanel({ settings, onChange, toast }) {
           </select>
         </div>
       </div>
+      <div className="field">
+        <label htmlFor="s-max">Tiempo máximo de tareas al día</label>
+        <select id="s-max" value={local.maxTaskMinutes} onChange={e => update('maxTaskMinutes', Number(e.target.value))}>
+          {MAX_TASK_TIME.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        <p className="hint">Si un día se pasa, las tareas flexibles se mueven solas a otro día con hueco. Las diarias, las de hora fija y las aplazadas no se mueven.</p>
+      </div>
       <NotificationSettings enabled={local.notify} onToggle={value => update('notify', value)} toast={toast} />
+      <p className="version">Día a Día {__APP_VERSION__}</p>
     </section>
   );
 }

@@ -11,6 +11,7 @@ import * as busy from './services/busyService.js';
 import * as rewards from './services/rewardService.js';
 import * as stats from './services/statsService.js';
 import * as settings from './services/settingsService.js';
+import * as calendarExport from './services/calendarExportService.js';
 import { todayStr } from './utils/dates.js';
 
 async function createDefaultAdapter() {
@@ -40,6 +41,7 @@ export const api = {
   notice: days.getNotice,
   dismissNotice: days.dismissNotice,
   completeTask: days.completeInstance,
+  completeAnytime: days.completeAnytime,
   undoTask: days.undoInstance,
   postponeLater: days.postponeLater,
   canMoveToTomorrow: days.canMoveToTomorrow,
@@ -62,6 +64,11 @@ export const api = {
   createBusy: busy.createBusy,
   updateBusy: busy.updateBusy,
   deleteBusy: busy.deleteBusy,
+  events: busy.listEvents,
+
+  // Calendario del móvil
+  calendarItems: calendarExport.listCalendarItems,
+  setCalendarLink: calendarExport.setCalendarLink,
 
   // Recompensas
   rewards: rewards.listRewards,

@@ -3,7 +3,7 @@
  * Cada migración se aplica una sola vez y en orden. Para cambiar el esquema
  * en el futuro, añade una migración nueva (2, 3...) y sube SCHEMA_VERSION.
  */
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 3;
 
 export const MIGRATIONS = {
   1: `
@@ -89,5 +89,59 @@ export const MIGRATIONS = {
       created_at  TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
     );
     CREATE INDEX idx_ledger_date ON points_ledger(date);
+  `,
+
+  /**
+   * v2: nuevos tipos de tarea ('once' = una sola vez, 'anytime' = sin fecha)
+   * y fecha en la que se completó una tarea sin fecha.
+   * SQLite no permite cambiar un CHECK, así que se rehace la tabla copiando los datos.
+   */
+  2: `
+    CREATE TABLE tasks_new (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      name         TEXT    NOT NULL,
+      icon         TEXT    NOT NULL,
+      points       INTEGER NOT NULL CHECK (points > 0),
+      freq_type    TEXT    NOT NULL
+                   CHECK (freq_type IN ('daily', 'interval', 'weekdays', 'once', 'anytime')),
+      freq_every   INTEGER CHECK (freq_every IS NULL OR freq_every >= 2),
+      pref         TEXT    NOT NULL DEFAULT 'cualquiera'
+                   CHECK (pref IN ('manana', 'tarde', 'noche', 'cualquiera')),
+      fixed_time   TEXT,
+      duration     INTEGER NOT NULL DEFAULT 30 CHECK (duration > 0),
+      start_date   TEXT    NOT NULL,
+      completed_at TEXT,
+      deleted      INTEGER NOT NULL DEFAULT 0,
+      created_at   TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+
+    INSERT INTO tasks_new (id, name, icon, points, freq_type, freq_every, pref,
+                           fixed_time, duration, start_date, deleted, created_at)
+    SELECT id, name, icon, points, freq_type, freq_every, pref,
+           fixed_time, duration, start_date, deleted, created_at
+    FROM tasks;
+
+    DROP TABLE tasks;
+    ALTER TABLE tasks_new RENAME TO tasks;
+  `,
+
+  /**
+   * v3: eventos (aviso previo y envío al calendario del móvil), borrado lógico
+   * del horario ocupado, enlace de tareas con el calendario del móvil y
+   * tareas movidas automáticamente por el límite diario.
+   */
+  3: `
+    ALTER TABLE busy_blocks ADD COLUMN reminder_min INTEGER;
+    ALTER TABLE busy_blocks ADD COLUMN sync_calendar INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE busy_blocks ADD COLUMN calendar_event_id TEXT;
+    ALTER TABLE busy_blocks ADD COLUMN calendar_hash TEXT;
+    ALTER TABLE busy_blocks ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0;
+
+    ALTER TABLE tasks ADD COLUMN sync_calendar INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE tasks ADD COLUMN calendar_event_id TEXT;
+    ALTER TABLE tasks ADD COLUMN calendar_hash TEXT;
+
+    ALTER TABLE task_instances ADD COLUMN moved_to TEXT;
+    ALTER TABLE task_instances ADD COLUMN auto_moved INTEGER NOT NULL DEFAULT 0;
   `
 };

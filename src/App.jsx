@@ -4,6 +4,7 @@ import { boot } from './lib/boot.js';
 import { useToasts } from './hooks/useToasts.js';
 import { useClock } from './hooks/useClock.js';
 import { useReminders } from './hooks/useReminders.js';
+import { usePhoneCalendar } from './hooks/usePhoneCalendar.js';
 
 import Header from './components/Header.jsx';
 import TabBar from './components/TabBar.jsx';
@@ -51,6 +52,8 @@ export default function App() {
 
   // Avisos del sistema: se recalculan cada vez que cambian los datos
   useReminders(ready, version);
+  // Calendario del móvil: envía los eventos y tareas marcados
+  usePhoneCalendar(ready, version);
 
   /** Ejecuta una acción del backend y recarga. Devuelve { ok, result | error } */
   const mutate = useCallback(async (fn, okMessage) => {
@@ -92,7 +95,7 @@ export default function App() {
     saveFrom(() => (task ? api.updateTask(task.id, data) : api.createTask(data)), task ? 'Tarea guardada.' : 'Tarea creada.');
 
   const saveBusy = (block, data) =>
-    saveFrom(() => (block ? api.updateBusy(block.id, data) : api.createBusy(data)), 'Guardado. Tus tareas se han recolocado en los huecos libres.');
+    saveFrom(() => (block ? api.updateBusy(block.id, data) : api.createBusy(data)), data.date ? 'Evento guardado.' : 'Guardado. Tus tareas se han recolocado en los huecos libres.');
 
   const saveReward = (reward, data) =>
     saveFrom(() => (reward ? api.updateReward(reward.id, data) : api.createReward(data)), reward ? 'Recompensa guardada.' : 'Recompensa creada.');
@@ -119,6 +122,7 @@ export default function App() {
       {modal?.type === 'task' && (
         <TaskForm
           task={modal.task}
+          toast={toast}
           onClose={close}
           onSave={data => saveTask(modal.task, data)}
           onDelete={() => askDelete(`¿Eliminar "${modal.task.name}"?`, () => api.deleteTask(modal.task.id), 'Tarea eliminada.')}
@@ -127,10 +131,11 @@ export default function App() {
       {modal?.type === 'busy' && (
         <BusyForm
           block={modal.block}
+          toast={toast}
           presetDate={modal.date}
           onClose={close}
           onSave={data => saveBusy(modal.block, data)}
-          onDelete={() => { act(() => api.deleteBusy(modal.block.id), 'Horario eliminado.'); close(); }}
+          onDelete={() => { act(() => api.deleteBusy(modal.block.id), modal.block.date ? 'Evento eliminado.' : 'Horario eliminado.'); close(); }}
         />
       )}
       {modal?.type === 'reward' && (

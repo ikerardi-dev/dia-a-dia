@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { api } from '../backend/api.js';
 import { useQuery } from '../hooks/useQuery.js';
-import { joinNatural } from '../lib/format.js';
+import { joinNatural, shortDate, duration } from '../lib/format.js';
 import DayTimeline from '../components/DayTimeline.jsx';
 import TaskRow from '../components/TaskRow.jsx';
 import ResultRow from '../components/ResultRow.jsx';
 import NoticeCard from '../components/NoticeCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
+import AnytimeRow from '../components/AnytimeRow.jsx';
 
 export default function TodayView({ version, minute, act, open }) {
   const [menu, setMenu] = useState(null);
@@ -44,6 +45,7 @@ export default function TodayView({ version, minute, act, open }) {
       : `Hoy te toca ${joinNatural(names)}.`;
   }
   else if (day.done.length) lead = 'Todo hecho por hoy. Así se hace.';
+  else if (day.anytime.length) lead = 'Hoy no tienes nada fijo. Aprovecha para lo que tienes pendiente.';
   else lead = 'Hoy no tienes retos programados.';
 
   const rowActions = item => ({
@@ -89,10 +91,16 @@ export default function TodayView({ version, minute, act, open }) {
             <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
               <i style={{ width: `${pct}%` }} />
             </div>
+            {day.maxTaskMinutes > 0 && (
+              <span className={`sub${day.plannedMinutes > day.maxTaskMinutes ? ' over' : ''}`}>
+                Tareas de hoy: {duration(day.plannedMinutes)} de {duration(day.maxTaskMinutes)} como máximo
+              </span>
+            )}
           </>
         )}
         <div className="row wrap">
-          <button className="btn" onClick={() => open.busy(null, day.date)}>＋ Tengo clase o trabajo</button>
+          <button className="btn" onClick={() => open.task(null)}>＋ Nueva tarea</button>
+          <button className="btn" onClick={() => open.busy(null, day.date)}>＋ Evento u ocupado</button>
           {day.wildcard ? (
             <button className="btn ghost" onClick={() => act(api.cancelWildcard, 'Comodín cancelado. Las tareas vuelven a contar.')}>Cancelar comodín</button>
           ) : wildcard.perWeek > 0 && (
@@ -130,6 +138,23 @@ export default function TodayView({ version, minute, act, open }) {
         </>
       )}
 
+      {day.anytime.length > 0 && (
+        <>
+          <h2 className="sec">Cuando puedas</h2>
+          <p className="sub tight">Sin fecha: no restan, y suman el día que las hagas.</p>
+          <div className="tlist">
+            {day.anytime.map(task => (
+              <AnytimeRow
+                key={task.id}
+                task={task}
+                onEdit={() => open.task(task)}
+                onDone={() => act(() => api.completeAnytime(task.id), r => `Bien hecho: +${r.points} puntos.`)}
+              />
+            ))}
+          </div>
+        </>
+      )}
+
       {day.done.length > 0 && (
         <>
           <h2 className="sec">Hecho hoy</h2>
@@ -144,8 +169,13 @@ export default function TodayView({ version, minute, act, open }) {
       {day.wildcard && day.excused.length > 0 && (
         <p className="sub">No cuentan hoy: {day.excused.map(i => i.task.name).join(', ')}</p>
       )}
-      {day.moved.length > 0 && (
-        <p className="sub">Pasadas a mañana: {day.moved.map(i => i.task.name).join(', ')}</p>
+      {day.moved.some(i => i.autoMoved) && (
+        <p className="sub">
+          📦 Repartidas por tu límite diario: {day.moved.filter(i => i.autoMoved).map(i => `${i.task.name} (${shortDate(i.movedTo)})`).join(', ')}
+        </p>
+      )}
+      {day.moved.some(i => !i.autoMoved) && (
+        <p className="sub">Pasadas a mañana: {day.moved.filter(i => !i.autoMoved).map(i => i.task.name).join(', ')}</p>
       )}
       {day.all.some(i => i.carried && i.status === 'pending') && (
         <p className="sub">Las marcadas con 😞 vienen de días anteriores. Si se vuelven a quedar sin hacer, restan otra vez.</p>

@@ -3,7 +3,12 @@ name: Generar APK
 on:
   push:
     branches: [main]
+    # Al subir una etiqueta de versión (v0.2.0-alpha...) se publica una release con el APK
+    tags: ['v*']
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   apk:
@@ -55,7 +60,22 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleRelease --no-daemon
 
+      - name: Ponerle nombre con la versión
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/*.apk "out/dia-a-dia-$VERSION.apk"
+
       - uses: actions/upload-artifact@v7
         with:
           name: dia-a-dia-apk
-          path: android/app/build/outputs/apk/release/*.apk
+          path: out/*.apk
+
+      - name: Publicar la versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: out/*.apk
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
+          generate_release_notes: false
+          body_path: CHANGELOG.md

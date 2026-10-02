@@ -6,6 +6,7 @@ const DEFAULTS = {
   penalty_pct: '50',
   notify: '0',
   wildcards_per_week: '1',
+  max_task_minutes: '0',
   last_closed: '',
   notice: ''
 };

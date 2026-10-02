@@ -22,7 +22,9 @@ export default function TaskRow({ item, actions }) {
 
   const meta = item.carried
     ? `😞 Aplazada del ${shortDate(item.fromDate)}`
-    : `${task.time ? `A las ${task.time}` : PREF_LABEL[task.pref]}, ${task.duration} min`;
+    : item.autoMoved
+      ? `📦 Repartida del ${shortDate(item.fromDate)}, ${task.duration} min`
+      : `${task.time ? `A las ${task.time}` : PREF_LABEL[task.pref]}, ${task.duration} min`;
 
   return (
     <div className={`task${item.carried ? ' carried' : ''}`}>

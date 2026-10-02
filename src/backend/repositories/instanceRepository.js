@@ -8,7 +8,9 @@ const toInstance = row => row && ({
   carried: row.carried,
   fromDate: row.from_date || null,
   notBefore: row.not_before ?? null,
-  doneAt: row.done_at || null
+  doneAt: row.done_at || null,
+  movedTo: row.moved_to || null,
+  autoMoved: !!row.auto_moved
 });
 
 export const instanceRepository = {
@@ -29,12 +31,29 @@ export const instanceRepository = {
     return rows.map(toInstance);
   },
 
-  async create({ taskId, date, carried = 0, fromDate = null }) {
+  async create({ taskId, date, carried = 0, fromDate = null, autoMoved = false }) {
     const { lastId } = await getDb().run(
-      'INSERT INTO task_instances (task_id, date, carried, from_date) VALUES (?, ?, ?, ?)',
-      [taskId, date, carried, fromDate]
+      'INSERT INTO task_instances (task_id, date, carried, from_date, auto_moved) VALUES (?, ?, ?, ?, ?)',
+      [taskId, date, carried, fromDate, autoMoved ? 1 : 0]
     );
     return lastId;
+  },
+
+  /** Marca la instancia como movida a otro día (a mano o por el límite diario) */
+  async markMoved(id, movedTo, auto = false) {
+    await getDb().run(
+      "UPDATE task_instances SET status = 'moved', moved_to = ?, auto_moved = ? WHERE id = ?",
+      [movedTo, auto ? 1 : 0, id]
+    );
+  },
+
+  /** ¿Hay ya alguna instancia (no movida) de esta tarea ese día? */
+  async existsOn(taskId, date) {
+    const row = await getDb().get(
+      "SELECT 1 AS x FROM task_instances WHERE task_id = ? AND date = ? AND status != 'moved'",
+      [taskId, date]
+    );
+    return !!row;
   },
 
   /** ¿Existe ya la instancia "normal" (no arrastrada) de esta tarea ese día? */
@@ -55,6 +74,10 @@ export const instanceRepository = {
       'UPDATE task_instances SET status = ? WHERE date = ? AND status = ?',
       [toStatus, date, fromStatus]
     );
+  },
+
+  async remove(id) {
+    await getDb().run('DELETE FROM task_instances WHERE id = ?', [id]);
   },
 
   async setNotBefore(id, minutes) {

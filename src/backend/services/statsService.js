@@ -7,6 +7,7 @@ import { dayRepository } from '../repositories/dayRepository.js';
 import { pointsRepository } from '../repositories/pointsRepository.js';
 import { computeDayStatus, isDue } from './rules.js';
 import { todayStr, addDays, weekStart, ymd } from '../utils/dates.js';
+import { listEvents } from './busyService.js';
 
 const WALL_WEEKS = 20;
 
@@ -143,10 +144,11 @@ export async function getMonth(year, month) {
   const from = weekStart(first);
   const to = addDays(weekStart(last), 6);
 
-  const [summaries, tasks, days] = await Promise.all([
+  const [summaries, tasks, days, events] = await Promise.all([
     summariesBetween(from, to),
     taskRepository.findAll({ includeDeleted: true }),
-    dayRepository.findBetween(from, to)
+    dayRepository.findBetween(from, to),
+    listEvents(from, to)
   ]);
   const taskById = new Map(tasks.map(t => [t.id, t]));
   const generated = new Set(days.filter(d => d.generated).map(d => d.date));
@@ -168,7 +170,8 @@ export async function getMonth(year, month) {
       inMonth: date >= first && date <= last,
       isToday: date === today,
       status: date > today ? 'future' : s?.status ?? 'empty',
-      items
+      items,
+      events: events.filter(e => e.date === date).map(e => ({ icon: e.icon, label: e.label, from: e.from }))
     });
   }
   return { year, month, cells };
