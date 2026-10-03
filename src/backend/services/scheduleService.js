@@ -50,7 +50,11 @@ export function buildSchedule({ items, busy, settings, nowMinutes = null }) {
   };
 
   const occupied = busy.map(b => [b.start, b.end]);
+  const pinned = i => i.pinnedStart != null;
   const sorted = [...items].sort((a, b) =>
+    // Las movidas a mano van primero y el resto se coloca alrededor
+    (pinned(a) ? 0 : 1) - (pinned(b) ? 0 : 1) ||
+    (pinned(a) && pinned(b) ? a.pinnedStart - b.pinnedStart : 0) ||
     (a.task.time ? 0 : 1) - (b.task.time ? 0 : 1) ||
     (a.task.time && b.task.time ? toMin(a.task.time) - toMin(b.task.time) : 0) ||
     b.carried - a.carried ||
@@ -66,7 +70,10 @@ export function buildSchedule({ items, busy, settings, nowMinutes = null }) {
     const floor = Math.max(wake, nowMinutes ?? 0, item.notBefore ?? 0);
     let start;
 
-    if (item.task.time) {
+    if (pinned(item)) {
+      // Hora elegida a mano: se respeta tal cual, aunque ya haya pasado
+      start = item.pinnedStart;
+    } else if (item.task.time) {
       start = findSlot(occupied, Math.max(toMin(item.task.time), floor), sleep, duration);
     } else {
       const [a, b] = windows[item.task.pref] || windows.cualquiera;
