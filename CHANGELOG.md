@@ -1,3 +1,19 @@
+# Día a Día 0.2.3-alpha
+
+## Arreglos
+
+- **La hora elegida a mano ya se respeta.** Al arrastrar la hora de una tarea en "Tu día" o usar "1 hora más tarde", la tarea se queda exactamente a esa hora y el resto se coloca alrededor. Antes la hora se guardaba, pero la tarea seguía colocándose sola.
+
+## Cambios
+
+- Dependencias de desarrollo revisadas: 0 vulnerabilidades al instalar. No cambia nada dentro de la app.
+
+## Al actualizar
+
+Instala el APK encima de la versión anterior. Tus datos se conservan.
+
+---
+
 # Día a Día 0.2.2-alpha
 
 ## Novedades
