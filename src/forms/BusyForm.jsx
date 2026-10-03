@@ -3,7 +3,7 @@ import Sheet from '../components/Sheet.jsx';
 import OptionChips from '../components/OptionChips.jsx';
 import IconPicker from '../components/IconPicker.jsx';
 import Toggle from '../components/Toggle.jsx';
-import { BUSY_ICONS, BUSY_SUGGESTIONS, REMINDERS } from '../lib/catalog.js';
+import { BUSY_ICONS, REMINDERS } from '../lib/catalog.js';
 import { WEEK, DOW_SHORT, todayStr } from '../lib/format.js';
 import { phoneCalendarSupported, ensureCalendarPermission } from '../lib/phoneCalendar.js';
 
@@ -53,9 +53,8 @@ export default function BusyForm({ block, presetDate, onSave, onDelete, onClose,
       <form onSubmit={submit} noValidate>
         <div className="field">
           <label htmlFor="b-label">Qué es</label>
-          <input id="b-label" type="text" list="b-suggestions" maxLength={30} value={form.label}
+          <input id="b-label" type="text" maxLength={30} value={form.label}
             placeholder={isEvent ? 'Partido de pádel, cumpleaños...' : 'Clase, trabajo...'} onChange={e => set('label', e.target.value)} />
-          <datalist id="b-suggestions">{BUSY_SUGGESTIONS.map(s => <option key={s} value={s} />)}</datalist>
         </div>
 
         <div className="field">

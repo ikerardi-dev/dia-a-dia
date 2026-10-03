@@ -21,6 +21,8 @@
   --wild: #6A58B0;
   --wild-soft: #E6E1F5;
   --busy: #DFE5EB;
+  --pause: #2F8FA3;
+  --pause-soft: #D9EEF2;
 
   --radius-l: 18px;
   --radius-m: 12px;
@@ -51,5 +53,7 @@
     --wild: #A897E6;
     --wild-soft: #2A2442;
     --busy: #242E39;
+    --pause: #6CC3D5;
+    --pause-soft: #17343B;
   }
 }

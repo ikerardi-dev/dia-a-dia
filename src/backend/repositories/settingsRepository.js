@@ -7,6 +7,7 @@ const DEFAULTS = {
   notify: '0',
   wildcards_per_week: '1',
   max_task_minutes: '0',
+  rating_snooze_until: '0',
   last_closed: '',
   notice: ''
 };

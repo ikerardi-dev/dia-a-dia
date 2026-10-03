@@ -1,4 +1,4 @@
-.slot { display: grid; grid-template-columns: 44px 1fr; gap: 8px; align-items: stretch; }
+.slot { display: grid; grid-template-columns: 48px 1fr; gap: 8px; align-items: stretch; }
 .slot + .slot { margin-top: 8px; }
 .time { font-size: 13px; font-weight: 700; color: var(--muted); padding-top: 12px; text-align: right; }
 .time.now { color: var(--accent); }
@@ -6,3 +6,21 @@
 
 .card.wild { background: var(--wild-soft); border-color: color-mix(in srgb, var(--wild) 35%, transparent); }
 .card.wild .lead { color: var(--wild); }
+
+/* Hora arrastrable */
+.time.handle {
+  border: 0; background: none; font: inherit; font-size: 13px; font-weight: 700; color: var(--muted);
+  padding: 12px 2px 0 0; text-align: right; cursor: ns-resize;
+  touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 1px; border-radius: 8px;
+}
+.time.handle.now { color: var(--accent); }
+.time.handle.dragging {
+  color: var(--on-accent); background: var(--accent); padding: 7px 4px; margin-top: 4px; align-items: center;
+  align-self: start; box-shadow: 0 6px 16px -6px rgba(0, 0, 0, .35);
+}
+.time.handle small { font-size: 10.5px; font-weight: 600; opacity: .85; }
+.slot:has(.time.handle.dragging) .task { outline: 2px solid var(--accent); outline-offset: -1px; }
+
+/* Hora elegida a mano que ya ha pasado */
+.time.late, .time.handle.late { color: var(--bad); }

@@ -21,7 +21,8 @@
 .day.wildcard { background: var(--wild-soft); }
 
 .detail-head { margin-bottom: 10px; }
-.detail-head h3 { font-size: 16px; text-transform: capitalize; }
+.detail-head h3 { font-size: 16px; }
+.detail-head h3::first-letter { text-transform: uppercase; }
 
 @media (min-width: 560px) {
   .day { min-height: 76px; }

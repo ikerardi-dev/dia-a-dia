@@ -1,6 +1,10 @@
 /**
  * Punto de entrada del backend. El frontend solo habla con este objeto:
  * nunca toca la base de datos ni los repositorios directamente.
+ *
+ * Todas las llamadas pasan por una cola y se atienden de una en una.
+ * Así, si Hoy, los avisos y la encuesta piden datos a la vez (por ejemplo
+ * a medianoche), no se generan las tareas del día varias veces.
  */
 import { initDatabase } from './db/database.js';
 import { settingsRepository } from './repositories/settingsRepository.js';
@@ -12,6 +16,8 @@ import * as rewards from './services/rewardService.js';
 import * as stats from './services/statsService.js';
 import * as settings from './services/settingsService.js';
 import * as calendarExport from './services/calendarExportService.js';
+import * as ratings from './services/ratingService.js';
+import * as pauses from './services/pauseService.js';
 import { todayStr } from './utils/dates.js';
 
 async function createDefaultAdapter() {
@@ -20,11 +26,15 @@ async function createDefaultAdapter() {
     const { createNativeAdapter } = await import('./db/adapters/nativeAdapter.js');
     return createNativeAdapter();
   }
-  const { createWebAdapter } = await import('./db/adapters/webAdapter.js');
-  return createWebAdapter();
+  // En el APK esta rama desaparece al compilar (__WEB_DB__ = false) y no se incluye sql.js
+  if (typeof __WEB_DB__ === 'undefined' || __WEB_DB__) {
+    const { createWebAdapter } = await import('./db/adapters/webAdapter.js');
+    return createWebAdapter();
+  }
+  throw new Error('No hay base de datos disponible en esta plataforma.');
 }
 
-export const api = {
+const endpoints = {
   /** Abre la base de datos, aplica migraciones y cierra los días pasados */
   async init({ adapter } = {}) {
     await initDatabase(adapter ?? (await createDefaultAdapter()));
@@ -44,6 +54,8 @@ export const api = {
   completeAnytime: days.completeAnytime,
   undoTask: days.undoInstance,
   postponeLater: days.postponeLater,
+  setTaskTime: days.setInstanceTime,
+  clearTaskTime: days.clearInstanceTime,
   canMoveToTomorrow: days.canMoveToTomorrow,
   moveToTomorrow: days.moveToTomorrow,
 
@@ -79,6 +91,17 @@ export const api = {
   redemptions: rewards.listRedemptions,
   loadExampleRewards: rewards.loadExampleRewards,
 
+  // Pausas (vacaciones)
+  pauses: pauses.listPauses,
+  createPause: pauses.createPause,
+  updatePause: pauses.updatePause,
+  deletePause: pauses.deletePause,
+
+  // Nota del día
+  pendingRating: ratings.getPendingRating,
+  rateDay: ratings.rateDay,
+  snoozeRating: ratings.snoozeRating,
+
   // Méritos y calendario
   balance: () => pointsRepository.balance(),
   merits: stats.getMerits,
@@ -88,3 +111,16 @@ export const api = {
   settings: settings.getSettings,
   updateSettings: settings.updateSettings
 };
+
+let queue = Promise.resolve();
+
+/** Envuelve una función para que espere su turno en la cola */
+const serialized = fn => (...args) => {
+  const result = queue.then(() => fn(...args));
+  queue = result.catch(() => {}); // un error no bloquea las siguientes llamadas
+  return result;
+};
+
+export const api = Object.fromEntries(
+  Object.entries(endpoints).map(([name, fn]) => [name, serialized(fn)])
+);

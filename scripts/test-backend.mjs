@@ -10,6 +10,7 @@ import { initDatabase, getDb } from '../src/backend/db/database.js';
 import { MIGRATIONS } from '../src/backend/db/schema.js';
 
 let failures = 0;
+const toMinutes = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
 const check = (label, condition, extra = '') => {
   console.log(`${condition ? '✔' : '✘'} ${label}${extra ? `  (${extra})` : ''}`);
   if (!condition) failures++;
@@ -122,6 +123,8 @@ await api.refresh();
 today = await api.today();
 check('Correos no hecho pasa al viernes como aplazada', today.all.some(i => i.task.name === 'Ir a Correos' && i.carried === 1));
 check('La basura sigue esperando sin restar', today.anytime.length === 1);
+const correosEnTareas = (await api.tasks()).find(t => t.name === 'Ir a Correos');
+check('Correos aplazada sigue en Tareas', !!correosEnTareas && correosEnTareas.postponed);
 
 // --- Eventos (viernes 9) ---
 const padel = await api.createBusy({ label: 'Pádel', icon: '⚽', from: '19:00', to: '20:30', date: '2026-10-10', reminder: 30, syncCalendar: true });
@@ -159,6 +162,115 @@ items = await api.calendarItems();
 const dent = items.find(i => i.kind === 'task' && i.id === dentista);
 check('La tarea de una vez se envía con su hora', dent?.wanted && dent.from === '10:00' && dent.to === '10:45' && !dent.allDay);
 
+// --- Cambiar la hora a mano (viernes 9, 9:00) ---
+today = await api.today();
+const paseoSlot = today.schedule.slots.find(sl => sl.task.name === 'Salir a dar un paseo');
+await api.setTaskTime(paseoSlot.id, 17 * 60 + 30);
+today = await api.today();
+const paseoMovido = today.schedule.slots.find(sl => sl.id === paseoSlot.id);
+check('El paseo queda exactamente a las 17:30', paseoMovido.start === 17 * 60 + 30 && paseoMovido.pinnedStart === 1050);
+check('Nada se solapa con el paseo', today.schedule.slots.filter(sl => sl.id !== paseoSlot.id)
+  .every(sl => sl.end <= 1050 || sl.start >= 1050 + 40));
+await expectError('Hora no válida', () => api.setTaskTime(paseoSlot.id, 24 * 60), 'INVALID_TIME');
+
+const fregarSlot = today.schedule.slots.find(sl => sl.task.name === 'Fregar los platos');
+r = await api.postponeLater(fregarSlot.id, fregarSlot.start);
+check('Aplazar 1 h cuenta desde su hora planificada', toMinutes(r.start) === Math.ceil((fregarSlot.start + 60) / 5) * 5, `${fregarSlot.start} -> ${r.start}`);
+await api.clearTaskTime(paseoSlot.id);
+today = await api.today();
+check('Hora automática: vuelve a colocarse sola', today.schedule.slots.find(sl => sl.id === paseoSlot.id).pinnedStart === null);
+
+// --- Nota del día ---
+goTo(2026, 9, 9, 10, 0);
+let pending = await api.pendingRating();
+check('A las 10:00 pregunta por ayer (jueves)', pending?.date === '2026-10-08' && !pending.isToday, JSON.stringify(pending));
+await api.snoozeRating();
+check('"Más tarde" no vuelve a preguntar antes de 1 hora', (await api.pendingRating()) === null);
+goTo(2026, 9, 9, 11, 1);
+check('Pasada la hora vuelve a preguntar', (await api.pendingRating())?.date === '2026-10-08');
+await api.rateDay('2026-10-08', 7.5);
+check('Valorado ayer: hasta la noche no pregunta', (await api.pendingRating()) === null);
+goTo(2026, 9, 9, 21, 31); // termina a las 23:00 → desde las 21:30
+pending = await api.pendingRating();
+check('Hora y media antes de terminar pregunta por hoy', pending?.date === '2026-10-09' && pending.isToday);
+await api.rateDay('2026-10-09', 4);
+await expectError('Nota con decimales raros', () => api.rateDay('2026-10-07', 6.3), 'INVALID_SCORE');
+await expectError('Nota mayor que 10', () => api.rateDay('2026-10-07', 10.5), 'INVALID_SCORE');
+await expectError('Día que aún no ha llegado', () => api.rateDay('2026-10-20', 5), 'FUTURE_DATE');
+await api.rateDay('2026-10-09', 5.5);
+const meritsR = await api.merits();
+check('Media de notas (7,5 y 5,5) = 6,5', meritsR.rating.average === 6.5 && meritsR.rating.count === 2, JSON.stringify(meritsR.rating));
+check('La nota sale en el muro', meritsR.wall.find(c => c.date === '2026-10-08').rating === 7.5);
+check('La nota sale en la vista del día', (await api.day('2026-10-09')).rating === 5.5);
+goTo(2026, 9, 9, 9, 0);
+
+// --- Peticiones a la vez (como a medianoche) ---
+{
+  const { getDb: db } = await import('../src/backend/db/database.js');
+  goTo(2026, 9, 11, 0, 5);
+  await Promise.all([api.refresh(), api.today(), api.today(), api.day('2026-10-11'), api.pendingRating(), api.day('2026-10-12')]);
+  const dups = await db().all(`SELECT task_id, COUNT(*) n FROM task_instances
+    WHERE date = '2026-10-11' AND carried = 0 AND auto_moved = 0 GROUP BY task_id HAVING n > 1`);
+  check('Pedir el día a la vez no duplica tareas', dups.length === 0, `${dups.length} duplicadas`);
+
+  // Dos semanas sin abrir la app: solo restan los 3 últimos días
+  goTo(2026, 9, 25, 10, 0);
+  await api.refresh();
+  const days = await db().all(`SELECT DISTINCT date FROM points_ledger WHERE kind = 'task_missed' AND date > '2026-10-11' ORDER BY date`);
+  check('Tras 2 semanas sin abrirla, solo restan 3 días', days.map(d => d.date).join(',') === '2026-10-22,2026-10-23,2026-10-24', days.map(d => d.date).join(','));
+  goTo(2026, 9, 9, 9, 0);
+}
+
+// --- Pausa (vacaciones): domingo 25 de octubre ---
+{
+  goTo(2026, 9, 25, 10, 0);
+  await api.refresh();
+  const tareas = await api.tasks();
+  const fregar = tareas.find(t => t.name === 'Fregar los platos');
+  const repetitivas = tareas.filter(t => ['daily', 'interval', 'weekdays'].includes(t.freq.type));
+  // Todas en pausa del 25 al 28 menos fregar
+  const pid = await api.createPause({ label: 'Vacaciones', from: '2026-10-25', to: '2026-10-28',
+    taskIds: repetitivas.filter(t => t.id !== fregar.id).map(t => t.id) });
+  today = await api.today();
+  check('En pausa: hoy solo queda fregar (también sin las aplazadas)', today.all.filter(i => i.status === 'pending').every(i => i.task.name === 'Fregar los platos'),
+    today.all.filter(i => i.status === 'pending').map(i => i.task.name).join(','));
+  check('La vista del día sabe que está en pausa', today.pause?.label === 'Vacaciones');
+  const lunes = await api.day('2026-10-26');
+  check('Mañana en pausa solo toca fregar', lunes.all.every(i => i.task.name === 'Fregar los platos'), lunes.all.map(i => i.task.name).join(','));
+
+  // Reactivar el paseo a mitad de la pausa
+  const paseo = repetitivas.find(t => t.name === 'Salir a dar un paseo');
+  const p = (await api.pauses()).find(x => x.id === pid);
+  await api.updatePause(pid, { ...p, taskIds: p.taskIds.filter(id => id !== paseo.id) });
+  today = await api.today();
+  check('Reactivar el paseo lo devuelve a hoy', today.all.some(i => i.task.name === 'Salir a dar un paseo' && i.status === 'pending'));
+
+  // Pasan los días de pausa sin hacer nada salvo... nada: solo resta lo activo
+  const antes = await api.balance();
+  goTo(2026, 9, 27, 10, 0);
+  await api.refresh();
+  const restado = antes - (await api.balance());
+  check('En pausa solo restan las tareas activas (fregar 5 + paseo 10, dos días)', restado === 30, String(restado));
+
+  // Todo en pausa: el día sale como pausado y no rompe la racha
+  const p2 = (await api.pauses()).find(x => x.id === pid);
+  await api.updatePause(pid, { ...p2, taskIds: repetitivas.map(t => t.id) });
+  goTo(2026, 9, 28, 10, 0);
+  await api.refresh();
+  const wallP = (await api.merits()).wall.find(c => c.date === '2026-10-27');
+  check('Un día con todo en pausa sale como pausado', wallP.status === 'paused', wallP.status);
+  await expectError('Pausa sin tareas', () => api.createPause({ from: '2026-11-01', to: '2026-11-02', taskIds: [] }), 'NO_TASKS');
+  await expectError('Pausa que acaba antes de empezar', () => api.createPause({ from: '2026-11-05', to: '2026-11-02', taskIds: [fregar.id] }), 'INVALID_RANGE');
+
+  // Quitar la pausa en curso: se termina ayer y hoy vuelve todo
+  await api.deletePause(pid);
+  today = await api.today();
+  check('Al quitar la pausa, hoy vuelven las tareas', today.all.some(i => i.task.name === 'Hacer la cama' && i.status === 'pending'));
+  check('La pausa quitada ya no sale en la lista', (await api.pauses()).length === 0);
+  check('Pero los días que estuvo en pausa siguen marcados', (await api.merits()).wall.find(c => c.date === '2026-10-27').status === 'paused');
+  goTo(2026, 9, 9, 9, 0);
+}
+
 // --- Validaciones ---
 await expectError('Tarea sin nombre', () => api.createTask({ name: ' ', points: 10, freq: { type: 'daily' } }), 'NAME_REQUIRED');
 await expectError('Horario al revés', () => api.createBusy({ from: '15:00', to: '09:00', days: [1] }), 'INVALID_RANGE');
@@ -181,7 +293,7 @@ await expectError('Horario al revés', () => api.createBusy({ from: '15:00', to:
   const t = await getDb().get('SELECT * FROM tasks WHERE id = 7');
   const fk = await getDb().all('PRAGMA foreign_key_check');
   const points = await getDb().get('SELECT SUM(amount) AS s FROM points_ledger');
-  check('Migración: versión 3', v.version === 3);
+  check('Migración: versión 6', v.version === 6);
   check('Migración: la tarea se conserva', t?.name === 'Fregar' && t.completed_at === null);
   check('Migración: historial y puntos intactos', points.s === 10 && fk.length === 0);
   await getDb().run("INSERT INTO tasks (name, icon, points, freq_type, start_date) VALUES ('Basura', '🗑️', 5, 'anytime', '2026-10-02')");

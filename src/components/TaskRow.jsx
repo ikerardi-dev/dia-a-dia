@@ -1,16 +1,18 @@
 import { useEffect, useRef } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler.js';
 import { CheckIcon } from './Icons.jsx';
 import { PREF_LABEL } from '../lib/catalog.js';
 import { shortDate } from '../lib/format.js';
 
 /**
  * Una tarea pendiente. Si recibe `actions`, muestra el botón de hecho y el menú.
- * actions = { menuOpen, onToggleMenu, onDone, onLater, onTomorrow, onEdit }
+ * actions = { menuOpen, onToggleMenu, onDone, onLater, onAutoTime, onTomorrow, onEdit }
  */
 export default function TaskRow({ item, actions }) {
   const { task } = item;
   const wrap = useRef(null);
   const menuOpen = actions?.menuOpen;
+  useBackHandler(!!menuOpen, () => actions.onToggleMenu());
 
   // Cerrar el menú al tocar fuera
   useEffect(() => {
@@ -24,7 +26,9 @@ export default function TaskRow({ item, actions }) {
     ? `😞 Aplazada del ${shortDate(item.fromDate)}`
     : item.autoMoved
       ? `📦 Repartida del ${shortDate(item.fromDate)}, ${task.duration} min`
-      : `${task.time ? `A las ${task.time}` : PREF_LABEL[task.pref]}, ${task.duration} min`;
+      : item.pinnedStart != null
+        ? `📌 Hora elegida por ti, ${task.duration} min`
+        : `${task.time ? `A las ${task.time}` : PREF_LABEL[task.pref]}, ${task.duration} min`;
 
   return (
     <div className={`task${item.carried ? ' carried' : ''}`}>
@@ -40,7 +44,10 @@ export default function TaskRow({ item, actions }) {
             <button className="icon-btn" aria-label="Más opciones" aria-expanded={menuOpen} onClick={actions.onToggleMenu}>⋯</button>
             {menuOpen && (
               <div className="menu" role="menu">
-                <button role="menuitem" onClick={actions.onLater}>Más tarde (dentro de 1 h)</button>
+                <button role="menuitem" onClick={actions.onLater}>1 hora más tarde</button>
+                {item.pinnedStart != null && (
+                  <button role="menuitem" onClick={actions.onAutoTime}>Volver a hora automática</button>
+                )}
                 <button role="menuitem" onClick={actions.onTomorrow} disabled={!item.canMoveTomorrow}>
                   Pasar a mañana
                   {!item.canMoveTomorrow && <small>{item.carried >= 2 ? 'Ya la aplazaste dos veces' : 'Mañana ya te toca'}</small>}

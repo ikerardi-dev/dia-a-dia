@@ -1,0 +1,69 @@
+/* Nota del día: el color va de rojo (0) a verde (10) con --score-hue */
+:root { --score-l: 44%; }
+@media (prefers-color-scheme: dark) { :root { --score-l: 38%; } }
+
+.rating-date { text-align: center; margin-top: -6px; }
+.rating-date::first-letter { text-transform: uppercase; }
+.rating-value {
+  text-align: center; font-size: 64px; font-weight: 800; letter-spacing: -.03em; line-height: 1.1;
+  margin: 12px 0 6px; color: hsl(var(--score-hue) 65% var(--score-l));
+}
+
+.rating-slider:focus-visible { outline-offset: 2px; border-radius: 8px; }
+.rating-slider {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 44px; margin: 4px 0 18px; background: transparent; touch-action: none;
+}
+.rating-slider::-webkit-slider-runnable-track {
+  height: 6px; border-radius: 99px;
+  background: linear-gradient(90deg, hsl(0 65% 50%), hsl(60 65% 48%), hsl(120 55% 40%));
+}
+.rating-slider::-moz-range-track {
+  height: 6px; border-radius: 99px;
+  background: linear-gradient(90deg, hsl(0 65% 50%), hsl(60 65% 48%), hsl(120 55% 40%));
+}
+.rating-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; appearance: none;
+  width: 30px; height: 30px; margin-top: -12px; border-radius: 50%;
+  background: var(--surface); border: 3px solid var(--ink); box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.rating-slider::-moz-range-thumb {
+  width: 24px; height: 24px; border-radius: 50%;
+  background: var(--surface); border: 3px solid var(--ink);
+}
+
+/* Nota media en Méritos */
+.rating-summary { display: flex; align-items: center; gap: 16px; }
+.rating-summary b { font-size: 15px; }
+.rating-avg {
+  flex: none; min-width: 64px; height: 64px; padding: 0 10px; border-radius: 18px;
+  display: grid; place-items: center; font-size: 28px; font-weight: 800; color: #fff;
+  background: hsl(var(--score-hue) 60% var(--score-l));
+}
+
+.score-chip {
+  display: inline-grid; place-items: center; min-width: 40px; height: 28px; padding: 0 8px;
+  border-radius: 8px; font-weight: 800; font-size: 14px; color: #fff;
+  background: hsl(var(--score-hue) 60% var(--score-l));
+}
+.score-chip.sm { min-width: 34px; height: 22px; font-size: 12px; border-radius: 6px; }
+.day-rating { display: flex; align-items: center; gap: 10px; margin: -2px 0 12px; }
+
+/* Selector Tareas / Notas */
+.segmented { display: inline-flex; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
+.segmented button {
+  border: 0; background: none; border-radius: 7px; padding: 5px 12px;
+  font-size: 13px; font-weight: 600; color: var(--muted);
+}
+.segmented button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .12); }
+
+/* Muro en modo notas: casillas más grandes con el número dentro */
+.wall-row.ratings .wall, .wall-row.ratings .wall-labels { grid-template-rows: repeat(7, 28px); }
+.wall-row.ratings .wall-labels { line-height: 28px; }
+.wall-row.ratings .cell { width: 28px; height: 28px; font-size: 10px; font-weight: 800; color: #fff; padding: 0; }
+.cell.rated { background: hsl(var(--score-hue) 60% var(--score-l)); border-color: transparent; }
+.cell.unrated { background: var(--surface-2); }
+.score-scale {
+  display: inline-block; width: 70px; height: 10px; border-radius: 99px; vertical-align: -1px;
+  background: linear-gradient(90deg, hsl(0 65% 50%), hsl(60 65% 48%), hsl(120 55% 40%));
+}

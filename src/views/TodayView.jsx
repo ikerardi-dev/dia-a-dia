@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { api } from '../backend/api.js';
 import { useQuery } from '../hooks/useQuery.js';
-import { joinNatural, shortDate, duration } from '../lib/format.js';
+import { joinNatural, shortDate, duration, lowerFirst } from '../lib/format.js';
 import DayTimeline from '../components/DayTimeline.jsx';
 import TaskRow from '../components/TaskRow.jsx';
 import ResultRow from '../components/ResultRow.jsx';
 import NoticeCard from '../components/NoticeCard.jsx';
 import EmptyState from '../components/EmptyState.jsx';
 import AnytimeRow from '../components/AnytimeRow.jsx';
+import PauseBanner from '../components/PauseBanner.jsx';
 
 export default function TodayView({ version, minute, act, open }) {
   const [menu, setMenu] = useState(null);
@@ -33,18 +34,22 @@ export default function TodayView({ version, minute, act, open }) {
 
   const { schedule } = day;
   const pending = [...schedule.slots, ...schedule.unplaced];
-  const counted = day.done.length + pending.length;
-  const pct = counted ? Math.round((day.done.length / counted) * 100) : 0;
+  // Las tareas sin fecha hechas hoy son un extra: no cambian el total del día
+  const doneRegular = day.done.filter(i => i.task.freq.type !== 'anytime').length;
+  const doneExtra = day.done.length - doneRegular;
+  const counted = doneRegular + pending.length;
+  const pct = counted ? Math.round((doneRegular / counted) * 100) : 0;
 
   let lead;
   if (day.wildcard) lead = 'Hoy es tu día de comodín. Descansa, mañana seguimos.';
+  else if (day.pause && !pending.length && !doneRegular) lead = `${day.pause.label}: hoy no tienes nada que hacer. Desconecta.`;
   else if (pending.length) {
-    const names = pending.map(i => i.task.name.toLowerCase());
+    const names = pending.map(i => lowerFirst(i.task.name));
     lead = names.length > 3
       ? `Hoy te toca ${names.slice(0, 2).join(', ')} y ${names.length - 2} tareas más.`
       : `Hoy te toca ${joinNatural(names)}.`;
   }
-  else if (day.done.length) lead = 'Todo hecho por hoy. Así se hace.';
+  else if (doneRegular) lead = 'Todo hecho por hoy. Así se hace.';
   else if (day.anytime.length) lead = 'Hoy no tienes nada fijo. Aprovecha para lo que tienes pendiente.';
   else lead = 'Hoy no tienes retos programados.';
 
@@ -57,7 +62,11 @@ export default function TodayView({ version, minute, act, open }) {
     },
     onLater: () => {
       setMenu(null);
-      act(() => api.postponeLater(item.id), r => `Movida a partir de las ${r.notBefore}.`);
+      act(() => api.postponeLater(item.id, item.start ?? null), r => `Movida a las ${r.start}.`);
+    },
+    onAutoTime: () => {
+      setMenu(null);
+      act(() => api.clearTaskTime(item.id), 'Vuelve a colocarse sola.');
     },
     onTomorrow: () => {
       setMenu(null);
@@ -79,13 +88,16 @@ export default function TodayView({ version, minute, act, open }) {
   return (
     <div className="stack">
       {notice && <NoticeCard notice={notice} onDismiss={() => act(api.dismissNotice)} />}
+      {day.pause && <PauseBanner pause={day.pause} onEdit={() => open.pause(day.pause)} />}
 
       <section className={`card stack${day.wildcard ? ' wild' : ''}`}>
         <p className="lead">{lead}</p>
         {!day.wildcard && (
           <>
             <div className="spread">
-              <span className="sub">{day.done.length} de {counted} hechas, +{day.earned} puntos hoy</span>
+              <span className="sub">
+                {doneRegular} de {counted} hechas{doneExtra ? `, +${doneExtra} sin fecha` : ''}, +{day.earned} puntos hoy
+              </span>
               <span className="sub">{pct}%</span>
             </div>
             <div className="progress" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
@@ -113,12 +125,21 @@ export default function TodayView({ version, minute, act, open }) {
 
       {!day.wildcard && (
         <>
-          {(schedule.slots.length > 0 || schedule.busy.length > 0) && <h2 className="sec">Tu día</h2>}
+          {(schedule.slots.length > 0 || schedule.busy.length > 0) && (
+            <>
+              <h2 className="sec">Tu día</h2>
+              {schedule.slots.length > 0 && <p className="sub tight">Mantén pulsada una hora y desliza para cambiarla.</p>}
+            </>
+          )}
           <DayTimeline
             schedule={schedule}
             isToday
             renderTask={slot => <TaskRow item={slot} actions={rowActions(slot)} />}
             onEditBusy={b => open.busy(b)}
+            onMoveTask={(slot, minutes) => {
+              setMenu(null);
+              act(() => api.setTaskTime(slot.id, minutes), r => `${slot.task.name}: a las ${r.start}.`);
+            }}
           />
 
           {schedule.unplaced.length > 0 && (

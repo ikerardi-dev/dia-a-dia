@@ -5,9 +5,11 @@ import { taskRepository } from '../repositories/taskRepository.js';
 import { instanceRepository } from '../repositories/instanceRepository.js';
 import { dayRepository } from '../repositories/dayRepository.js';
 import { pointsRepository } from '../repositories/pointsRepository.js';
-import { computeDayStatus, isDue } from './rules.js';
+import { computeDayStatus } from './rules.js';
+import { loadPauses, isActive, pauseOn } from './pauseService.js';
 import { todayStr, addDays, weekStart, ymd } from '../utils/dates.js';
 import { listEvents } from './busyService.js';
+import { ratingRepository } from '../repositories/ratingRepository.js';
 
 const WALL_WEEKS = 20;
 
@@ -25,10 +27,11 @@ const MEDALS = [
 /** Estado de cada día con actividad entre dos fechas: { [date]: {...} } */
 async function summariesBetween(from, to) {
   const today = todayStr();
-  const [instances, days, totals] = await Promise.all([
+  const [instances, days, totals, pauses] = await Promise.all([
     instanceRepository.findBetween(from, to),
     dayRepository.findBetween(from, to),
-    pointsRepository.dailyTotals(from, to)
+    pointsRepository.dailyTotals(from, to),
+    loadPauses()
   ]);
   const wildcards = new Set(days.filter(d => d.wildcard).map(d => d.date));
   const counts = {};
@@ -37,13 +40,18 @@ async function summariesBetween(from, to) {
     if (i.status in c) c[i.status]++;
     c.instances.push(i);
   }
-  const dates = new Set([...Object.keys(counts), ...wildcards]);
+  // Días en pausa (hasta hoy) aunque no tengan tareas
+  const pausedDates = [];
+  for (const p of pauses) {
+    for (let d = p.from > from ? p.from : from; d <= p.to && d <= to && d <= today; d = addDays(d, 1)) pausedDates.push(d);
+  }
+  const dates = new Set([...Object.keys(counts), ...wildcards, ...pausedDates]);
   const result = {};
   for (const date of dates) {
     const c = counts[date] ?? { done: 0, missed: 0, pending: 0, instances: [] };
     result[date] = {
       date,
-      status: computeDayStatus({ date, today, wildcard: wildcards.has(date), ...c }),
+      status: computeDayStatus({ date, today, wildcard: wildcards.has(date), paused: !!pauseOn(pauses, date), ...c }),
       earned: totals[date]?.earned ?? 0,
       lost: totals[date]?.lost ?? 0,
       instances: c.instances
@@ -81,7 +89,11 @@ export async function getMerits() {
     pointsRepository.balance(),
     pointsRepository.totalEarned(),
     instanceRepository.countDoneByTask(),
-    pointsRepository.redemptions(1000)
+    pointsRepository.redemptions(1000),
+  ]);
+  const [ratings, ratingStats] = await Promise.all([
+    ratingRepository.between('0000-01-01', today),
+    ratingRepository.summary()
   ]);
   const taskById = new Map(tasks.map(t => [t.id, t]));
   const list = Object.values(summaries);
@@ -92,6 +104,7 @@ export async function getMerits() {
     green: list.filter(d => d.status === 'good').length,
     red: list.filter(d => d.status === 'bad').length,
     wildcards: list.filter(d => d.status === 'wildcard').length,
+    paused: list.filter(d => d.status === 'paused').length,
     earned,
     bestStreak: streak.best,
     maxPerTask: Math.max(0, ...perTask.map(p => p.n)),
@@ -108,7 +121,8 @@ export async function getMerits() {
       date,
       status: date > today ? 'future' : s?.status ?? 'empty',
       earned: s?.earned ?? 0,
-      lost: s?.lost ?? 0
+      lost: s?.lost ?? 0,
+      rating: ratings[date] ?? null
     });
   }
 
@@ -120,6 +134,7 @@ export async function getMerits() {
       date: d.date,
       status: d.status,
       net: d.earned - d.lost,
+      rating: ratings[d.date] ?? null,
       items: d.instances
         .filter(i => taskById.has(i.taskId))
         .map(i => ({ icon: taskById.get(i.taskId).icon, name: taskById.get(i.taskId).name, status: i.status }))
@@ -130,6 +145,7 @@ export async function getMerits() {
     earned,
     streak,
     counts,
+    rating: ratingStats,
     wall,
     recent,
     medals: MEDALS.map(({ ok, ...m }) => ({ ...m, unlocked: ok(counts) }))
@@ -144,11 +160,12 @@ export async function getMonth(year, month) {
   const from = weekStart(first);
   const to = addDays(weekStart(last), 6);
 
-  const [summaries, tasks, days, events] = await Promise.all([
+  const [summaries, tasks, days, events, pauses] = await Promise.all([
     summariesBetween(from, to),
     taskRepository.findAll({ includeDeleted: true }),
     dayRepository.findBetween(from, to),
-    listEvents(from, to)
+    listEvents(from, to),
+    loadPauses()
   ]);
   const taskById = new Map(tasks.map(t => [t.id, t]));
   const generated = new Set(days.filter(d => d.generated).map(d => d.date));
@@ -162,7 +179,7 @@ export async function getMonth(year, month) {
 
     if (date > today && !generated.has(date)) {
       const regular = new Set((s?.instances ?? []).filter(i => !i.carried).map(i => i.taskId));
-      for (const t of tasks) if (isDue(t, date) && !regular.has(t.id)) items.push({ icon: t.icon, status: 'pending' });
+      for (const t of tasks) if (isActive(pauses, t, date) && !regular.has(t.id)) items.push({ icon: t.icon, status: 'pending' });
     }
 
     cells.push({
@@ -170,6 +187,7 @@ export async function getMonth(year, month) {
       inMonth: date >= first && date <= last,
       isToday: date === today,
       status: date > today ? 'future' : s?.status ?? 'empty',
+      paused: !!pauseOn(pauses, date),
       items,
       events: events.filter(e => e.date === date).map(e => ({ icon: e.icon, label: e.label, from: e.from }))
     });

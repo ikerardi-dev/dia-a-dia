@@ -71,6 +71,10 @@ jobs:
           name: dia-a-dia-apk
           path: out/*.apk
 
+      - name: Notas solo de esta versión
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: awk '/^---$/{exit} {print}' CHANGELOG.md > release-notes.md
+
       - name: Publicar la versión
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v3
@@ -78,4 +82,4 @@ jobs:
           files: out/*.apk
           prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') }}
           generate_release_notes: false
-          body_path: CHANGELOG.md
+          body_path: release-notes.md

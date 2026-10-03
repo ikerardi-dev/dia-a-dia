@@ -108,7 +108,8 @@ h2.sec { font-size: 15px; font-weight: 700; margin: 22px 0 10px; color: var(--mu
 .dl.partial { border-left-color: var(--warn); }
 .dl.bad { border-left-color: var(--bad); background: var(--bad-soft); }
 .dl.wildcard { border-left-color: var(--wild); }
-.dl .d { width: 88px; flex: none; font-size: 13px; font-weight: 700; text-transform: capitalize; }
+.dl .d { width: 88px; flex: none; font-size: 13px; font-weight: 700; }
+.dl .d::first-letter { text-transform: uppercase; }
 .dl .its { flex: 1; font-size: 16px; letter-spacing: 2px; min-width: 0; }
 .dl .its .x { opacity: .45; filter: grayscale(1); }
 .dl .net { font-weight: 800; font-size: 14px; }
@@ -145,3 +146,12 @@ h2.sec { font-size: 15px; font-weight: 700; margin: 22px 0 10px; color: var(--mu
 .task.busy.event { border-style: solid; border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .lg.event { background: var(--accent); border-radius: 50%; }
 .sub.over { color: var(--bad); }
+
+/* Avisos como popover: quitar los estilos por defecto del navegador */
+.toasts[popover] {
+  inset: auto; margin: 0; padding: 0; border: 0; background: transparent; overflow: visible;
+  left: 50%; transform: translateX(-50%);
+  bottom: calc(var(--tabbar-h) + 18px + env(safe-area-inset-bottom, 0px));
+}
+.toasts[popover]:not(:popover-open) { display: none; }
+.toasts[popover]:popover-open { display: flex; }

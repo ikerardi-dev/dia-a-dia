@@ -5,6 +5,7 @@ import { useToasts } from './hooks/useToasts.js';
 import { useClock } from './hooks/useClock.js';
 import { useReminders } from './hooks/useReminders.js';
 import { usePhoneCalendar } from './hooks/usePhoneCalendar.js';
+import { useAndroidBack } from './hooks/useAndroidBack.js';
 
 import Header from './components/Header.jsx';
 import TabBar from './components/TabBar.jsx';
@@ -13,6 +14,9 @@ import ConfirmSheet from './components/ConfirmSheet.jsx';
 import TaskForm from './forms/TaskForm.jsx';
 import BusyForm from './forms/BusyForm.jsx';
 import RewardForm from './forms/RewardForm.jsx';
+import RatingSheet from './components/RatingSheet.jsx';
+import PauseForm from './forms/PauseForm.jsx';
+import { formatScore } from './lib/rating.js';
 
 import TodayView from './views/TodayView.jsx';
 import CalendarView from './views/CalendarView.jsx';
@@ -55,6 +59,16 @@ export default function App() {
   // Calendario del móvil: envía los eventos y tareas marcados
   usePhoneCalendar(ready, version);
 
+  // Encuesta del día: al abrir la app, al volver a ella y cada 30 segundos
+  useEffect(() => {
+    if (!ready || modal) return;
+    let alive = true;
+    api.pendingRating().then(pending => {
+      if (alive && pending) setModal({ type: 'rating', ...pending, auto: true, initial: null });
+    });
+    return () => { alive = false; };
+  }, [ready, minute, version, modal]);
+
   /** Ejecuta una acción del backend y recarga. Devuelve { ok, result | error } */
   const mutate = useCallback(async (fn, okMessage) => {
     try {
@@ -80,7 +94,9 @@ export default function App() {
     task: task => setModal({ type: 'task', task }),
     busy: (block, date) => setModal({ type: 'busy', block, date }),
     reward: reward => setModal({ type: 'reward', reward }),
-    confirm: options => setModal({ type: 'confirm', ...options })
+    confirm: options => setModal({ type: 'confirm', ...options }),
+    pause: pause => setModal({ type: 'pause', pause }),
+    rating: (date, current, isToday = false) => setModal({ type: 'rating', date, isToday, auto: false, initial: current })
   }), []);
 
   /* ---------- Guardado desde los formularios ---------- */
@@ -100,8 +116,14 @@ export default function App() {
   const saveReward = (reward, data) =>
     saveFrom(() => (reward ? api.updateReward(reward.id, data) : api.createReward(data)), reward ? 'Recompensa guardada.' : 'Recompensa creada.');
 
-  const askDelete = (title, fn, okMessage) =>
-    open.confirm({ title, text: 'Tu historial se conserva.', confirmLabel: 'Eliminar', danger: true, onConfirm: () => act(fn, okMessage) });
+  const savePause = (pause, data) =>
+    saveFrom(() => (pause ? api.updatePause(pause.id, data) : api.createPause(data)), pause ? 'Pausa guardada.' : 'Pausa creada. Disfruta 🏖️');
+
+  const askDelete = (title, fn, okMessage, text = 'Tu historial se conserva.') =>
+    open.confirm({ title, text, confirmLabel: 'Eliminar', danger: true, onConfirm: () => act(fn, okMessage) });
+
+  const goTo = useCallback(v => { setView(v); window.scrollTo(0, 0); }, []);
+  useAndroidBack(view, () => goTo('hoy'));
 
   const View = VIEWS[view];
 
@@ -116,7 +138,7 @@ export default function App() {
         </main>
       </div>
 
-      <TabBar view={view} onChange={v => { setView(v); window.scrollTo(0, 0); }} />
+      <TabBar view={view} onChange={goTo} />
       <Toasts toasts={toasts} />
 
       {modal?.type === 'task' && (
@@ -135,7 +157,12 @@ export default function App() {
           presetDate={modal.date}
           onClose={close}
           onSave={data => saveBusy(modal.block, data)}
-          onDelete={() => { act(() => api.deleteBusy(modal.block.id), modal.block.date ? 'Evento eliminado.' : 'Horario eliminado.'); close(); }}
+          onDelete={() => askDelete(
+            `¿Eliminar "${modal.block.label}"?`,
+            () => api.deleteBusy(modal.block.id),
+            modal.block.date ? 'Evento eliminado.' : 'Horario eliminado.',
+            modal.block.syncCalendar ? 'También se quitará del calendario del móvil.' : 'Las tareas volverán a poder ocupar ese hueco.'
+          )}
         />
       )}
       {modal?.type === 'reward' && (
@@ -146,7 +173,36 @@ export default function App() {
           onDelete={() => askDelete(`¿Eliminar "${modal.reward.name}"?`, () => api.deleteReward(modal.reward.id), 'Recompensa eliminada.')}
         />
       )}
+      {modal?.type === 'pause' && (
+        <PauseForm
+          pause={modal.pause}
+          onClose={close}
+          onSave={data => savePause(modal.pause, data)}
+          onDelete={() => askDelete(
+            `¿Quitar "${modal.pause.label}"?`,
+            () => api.deletePause(modal.pause.id),
+            'Pausa quitada. Tus tareas vuelven a contar.',
+            'Desde hoy tus tareas vuelven a contar. Los días que ya estuvieron en pausa siguen igual.'
+          )}
+        />
+      )}
       {modal?.type === 'confirm' && <ConfirmSheet {...modal} onClose={close} />}
+      {modal?.type === 'rating' && (
+        <RatingSheet
+          key={modal.date}
+          date={modal.date}
+          isToday={modal.isToday}
+          initial={modal.initial}
+          auto={modal.auto}
+          onClose={close}
+          onLater={async () => { await api.snoozeRating(); close(); toast('Vale, te pregunto dentro de una hora.'); }}
+          onSave={async score => {
+            const res = await mutate(() => api.rateDay(modal.date, score), `Nota guardada: ${formatScore(score)}`);
+            if (!res.ok) toast(res.error);
+            close();
+          }}
+        />
+      )}
     </>
   );
 }

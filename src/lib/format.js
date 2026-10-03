@@ -27,5 +27,13 @@ export const duration = minutes => {
 export const fmt = n => n.toLocaleString('es-ES');
 export const signed = n => (n > 0 ? `+${fmt(n)}` : fmt(n));
 
+/** "Ir a Correos" → "ir a Correos". Si empieza por siglas ("DNI…"), no lo toca. */
+export const lowerFirst = text => {
+  if (!text) return text;
+  const [first, second] = text;
+  if (second && second === second.toUpperCase() && second !== second.toLowerCase()) return text;
+  return first.toLowerCase() + text.slice(1);
+};
+
 export const joinNatural = list =>
   list.length <= 1 ? list[0] ?? '' : `${list.slice(0, -1).join(', ')} y ${list[list.length - 1]}`;

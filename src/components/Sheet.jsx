@@ -1,8 +1,10 @@
 import { useEffect, useRef } from 'react';
+import { useBackHandler } from '../hooks/useBackHandler.js';
 
 /** Hoja modal basada en <dialog>. Se cierra con Escape o tocando fuera. */
 export default function Sheet({ title, onClose, children }) {
   const ref = useRef(null);
+  useBackHandler(true, onClose);
 
   useEffect(() => {
     const dialog = ref.current;

@@ -2,7 +2,8 @@ import { getDb } from '../db/database.js';
 import { taskRepository } from '../repositories/taskRepository.js';
 import { instanceRepository } from '../repositories/instanceRepository.js';
 import { dayRepository } from '../repositories/dayRepository.js';
-import { isDue, describeFreq } from './rules.js';
+import { describeFreq } from './rules.js';
+import { loadPauses, isActive } from './pauseService.js';
 import { todayStr } from '../utils/dates.js';
 import { assert } from '../utils/errors.js';
 import { EXAMPLE_TASKS } from './exampleData.js';
@@ -71,7 +72,7 @@ async function syncToday(task) {
   const today = todayStr();
   const day = await dayRepository.get(today);
   if (!day?.generated || day.wildcard) return;
-  if (isDue(task, today)) {
+  if (isActive(await loadPauses(), task, today)) {
     if (!(await instanceRepository.hasRegular(task.id, today))) {
       await instanceRepository.create({ taskId: task.id, date: today });
     }
@@ -83,14 +84,15 @@ async function syncToday(task) {
 /** Tareas visibles: oculta las sin fecha ya hechas y las de una vez ya pasadas */
 export async function listTasks() {
   const today = todayStr();
-  const tasks = await taskRepository.findAll();
+  const [tasks, pending] = await Promise.all([taskRepository.findAll(), instanceRepository.pendingTaskIds(today)]);
   return tasks
     .filter(t => {
       if (t.freq.type === 'anytime') return !t.completedAt;
-      if (t.freq.type === 'once') return t.startDate >= today;
+      // Las de una vez se ven hasta su día, o después si se aplazaron y siguen pendientes
+      if (t.freq.type === 'once') return t.startDate >= today || pending.has(t.id);
       return true;
     })
-    .map(t => ({ ...t, freqLabel: describeFreq(t.freq) }));
+    .map(t => ({ ...t, freqLabel: describeFreq(t.freq), postponed: t.freq.type === 'once' && t.startDate < today }));
 }
 
 export async function createTask(data) {

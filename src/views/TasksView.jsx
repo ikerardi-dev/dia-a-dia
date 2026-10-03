@@ -1,14 +1,17 @@
 import { api } from '../backend/api.js';
 import { useQuery } from '../hooks/useQuery.js';
 import { PREF_LABEL, REPEATING } from '../lib/catalog.js';
-import { WEEK, DOW_SHORT, longDate, todayStr } from '../lib/format.js';
+import { WEEK, DOW_SHORT, longDate, shortDate, todayStr } from '../lib/format.js';
 import SettingsPanel from '../forms/SettingsPanel.jsx';
 
 /** Texto bajo el nombre según el tipo de tarea */
 function taskMeta(t, today) {
   const when = t.time ? `a las ${t.time}` : PREF_LABEL[t.pref].toLowerCase();
   if (t.freq.type === 'anytime') return `Sin fecha, ${t.duration} min`;
-  if (t.freq.type === 'once') return `${longDate(t.startDate)}, ${when}${t.syncCalendar ? ' 📲' : ''}`;
+  if (t.freq.type === 'once') {
+    if (t.postponed) return `😞 Aplazada (era el ${longDate(t.startDate)})`;
+    return `${longDate(t.startDate)}, ${when}${t.syncCalendar ? ' 📲' : ''}`;
+  }
   const start = t.startDate > today ? `, empieza el ${longDate(t.startDate)}` : '';
   return `${t.freqLabel}, ${when}, ${t.duration} min${start}`;
 }
@@ -53,9 +56,9 @@ function BusyList({ blocks, onEdit, describe }) {
 }
 
 export default function TasksView({ version, act, open, toast }) {
-  const { data } = useQuery(() => Promise.all([api.tasks(), api.busy(), api.settings()]), [version]);
+  const { data } = useQuery(() => Promise.all([api.tasks(), api.busy(), api.settings(), api.pauses()]), [version]);
   if (!data) return <p className="loading">Cargando…</p>;
-  const [tasks, busy, settings] = data;
+  const [tasks, busy, settings, pauses] = data;
   const today = todayStr();
 
   const repeating = tasks.filter(t => REPEATING.includes(t.freq.type));
@@ -83,6 +86,30 @@ export default function TasksView({ version, act, open, toast }) {
         <TaskGroup title="Una vez" tasks={once} today={today} onEdit={open.task} />
         <TaskGroup title="Sin fecha" tasks={anytime} today={today} onEdit={open.task} />
       </div>
+
+      <div className="spread section-gap">
+        <div>
+          <h2 className="title">Pausas y vacaciones</h2>
+          <p className="sub tight">Para unos días las tareas que elijas: no restan ni rompen la racha.</p>
+        </div>
+        <button className="btn" onClick={() => open.pause(null)}>＋ Pausa</button>
+      </div>
+      {pauses.length ? (
+        <div className="tlist">
+          {pauses.map(p => (
+            <div key={p.id} className="task pause-row">
+              <div className="ic" aria-hidden="true">🏖️</div>
+              <div className="body">
+                <div className="name">{p.label}</div>
+                <div className="meta">
+                  {p.from <= today ? 'En curso' : `Del ${shortDate(p.from)}`} hasta el {shortDate(p.to)}, {p.taskIds.length} {p.taskIds.length === 1 ? 'tarea' : 'tareas'} en pausa
+                </div>
+              </div>
+              <button className="btn ghost sm" onClick={() => open.pause(p)}>Editar</button>
+            </div>
+          ))}
+        </div>
+      ) : <p className="sub">No tienes pausas programadas.</p>}
 
       <div className="spread section-gap">
         <div>

@@ -10,6 +10,7 @@ const toInstance = row => row && ({
   notBefore: row.not_before ?? null,
   doneAt: row.done_at || null,
   movedTo: row.moved_to || null,
+  pinnedStart: row.pinned_start ?? null,
   autoMoved: !!row.auto_moved
 });
 
@@ -80,6 +81,18 @@ export const instanceRepository = {
     await getDb().run('DELETE FROM task_instances WHERE id = ?', [id]);
   },
 
+  /** Hora fijada a mano (minutos desde las 00:00), o null para volver a la automática */
+  async setPinnedStart(id, minutes) {
+    await getDb().run('UPDATE task_instances SET pinned_start = ?, not_before = NULL WHERE id = ?', [minutes, id]);
+  },
+
+  async excusePendingCarried(taskId, date) {
+    await getDb().run(
+      "UPDATE task_instances SET status = 'excused' WHERE task_id = ? AND date = ? AND carried > 0 AND status = 'pending'",
+      [taskId, date]
+    );
+  },
+
   async setNotBefore(id, minutes) {
     await getDb().run('UPDATE task_instances SET not_before = ? WHERE id = ?', [minutes, id]);
   },
@@ -96,6 +109,15 @@ export const instanceRepository = {
       "DELETE FROM task_instances WHERE task_id = ? AND date >= ? AND status = 'pending'",
       [taskId, fromDate]
     );
+  },
+
+  /** Tareas con alguna instancia pendiente desde una fecha */
+  async pendingTaskIds(fromDate) {
+    const rows = await getDb().all(
+      "SELECT DISTINCT task_id AS id FROM task_instances WHERE status = 'pending' AND date >= ?",
+      [fromDate]
+    );
+    return new Set(rows.map(r => r.id));
   },
 
   /** Veces que se ha completado cada tarea (para la medalla de constancia) */

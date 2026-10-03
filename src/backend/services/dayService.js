@@ -15,6 +15,8 @@ import { isDue, penaltyFor, computeDayStatus, MAX_CARRY, MAX_CATCHUP_DAYS } from
 import { todayStr, addDays, diffDays, nowMinutes, fromMin, weekStart } from '../utils/dates.js';
 import { assert } from '../utils/errors.js';
 import { balanceToday } from './balanceService.js';
+import { loadPauses, isActive, isPaused, pauseOn } from './pauseService.js';
+import { ratingRepository } from '../repositories/ratingRepository.js';
 
 /* ---------- Generación y cierre de días ---------- */
 
@@ -23,9 +25,9 @@ export async function ensureDayGenerated(date) {
   if (day?.generated) return;
   await getDb().transaction(async () => {
     await dayRepository.ensure(date);
-    const tasks = await taskRepository.findAll();
+    const [tasks, pauses] = await Promise.all([taskRepository.findAll(), loadPauses()]);
     for (const task of tasks) {
-      if (isDue(task, date) && !(await instanceRepository.hasRegular(task.id, date))) {
+      if (isActive(pauses, task, date) && !(await instanceRepository.hasRegular(task.id, date))) {
         await instanceRepository.create({ taskId: task.id, date });
       }
     }
@@ -52,6 +54,7 @@ export async function closePastDays() {
 
   const { penaltyPct } = await getSettings();
   const tasks = new Map((await taskRepository.findAll({ includeDeleted: true })).map(t => [t.id, t]));
+  const pauses = await loadPauses();
   const missed = [];
 
   while (date < today) {
@@ -63,7 +66,8 @@ export async function closePastDays() {
 
       for (const inst of pending) {
         const task = tasks.get(inst.taskId);
-        if (day.wildcard || !task) {
+        // Comodín, tarea borrada o tarea en pausa ese día: no resta
+        if (day.wildcard || !task || isPaused(pauses, task.id, current)) {
           await instanceRepository.setStatus(inst.id, 'excused');
           continue;
         }
@@ -74,7 +78,7 @@ export async function closePastDays() {
 
         let movedTo = null;
         const next = addDays(current, 1);
-        if (!task.deleted && task.freq.type !== 'daily' && inst.carried < MAX_CARRY && !isDue(task, next)) {
+        if (!task.deleted && task.freq.type !== 'daily' && inst.carried < MAX_CARRY && !isDue(task, next) && !isPaused(pauses, task.id, next)) {
           await dayRepository.ensure(next);
           await instanceRepository.create({ taskId: task.id, date: next, carried: inst.carried + 1, fromDate: current });
           movedTo = next;
@@ -117,6 +121,8 @@ export async function getDayView(date) {
     await balanceToday();
   }
 
+  const rating = await ratingRepository.get(date);
+  const pauses = await loadPauses();
   const [allTasks, blocks, settings, day, stored, amounts] = await Promise.all([
     taskRepository.findAll({ includeDeleted: true }),
     busyRepository.findAll(),
@@ -131,7 +137,7 @@ export async function getDayView(date) {
   // Días futuros aún sin generar: se calculan "al vuelo" sin guardarlos
   if (date > today && !day?.generated) {
     const virtual = allTasks
-      .filter(t => isDue(t, date) && !stored.some(i => i.taskId === t.id && !i.carried))
+      .filter(t => isActive(pauses, t, date) && !stored.some(i => i.taskId === t.id && !i.carried))
       .map(t => ({ id: `v-${t.id}`, taskId: t.id, date, status: 'pending', carried: 0, fromDate: null, notBefore: null, doneAt: null, virtual: true }));
     instances = [...stored, ...virtual];
   }
@@ -146,11 +152,13 @@ export async function getDayView(date) {
         task,
         points: amounts[i.id] ?? 0,
         // Para que la interfaz sepa si mostrar "Pasar a mañana"
-        canMoveTomorrow: i.status === 'pending' && date === today && i.carried < MAX_CARRY && !isDue(task, tomorrow)
+        canMoveTomorrow: i.status === 'pending' && date === today && i.carried < MAX_CARRY &&
+          !isDue(task, tomorrow) && !isPaused(pauses, task.id, tomorrow)
       };
     });
   const byStatus = s => items.filter(i => i.status === s);
   const wildcard = !!day?.wildcard;
+  const inPause = !!pauseOn(pauses, date);
 
   const pending = byStatus('pending');
   const schedule = date >= today && !wildcard
@@ -178,12 +186,14 @@ export async function getDayView(date) {
     date,
     isToday: date === today,
     anytime,
+    rating,
+    pause: pauseOn(pauses, date),
     maxTaskMinutes,
     plannedMinutes,
     isPast: date < today,
     wildcard,
     status: computeDayStatus({
-      date, today, wildcard,
+      date, today, wildcard, paused: inPause,
       done: byStatus('done').length,
       missed: byStatus('missed').length,
       pending: pending.length
@@ -254,18 +264,43 @@ export async function undoInstance(instanceId) {
   return { points: -amount, balance: await pointsRepository.balance() };
 }
 
-export async function postponeLater(instanceId, minutes = 60) {
+const LAST_START = 23 * 60 + 50;
+const STEP = 5;
+
+/** Fija a mano la hora de una tarea de hoy (minutos desde las 00:00) */
+export async function setInstanceTime(instanceId, minutes) {
   const inst = await pendingToday(instanceId);
-  const notBefore = nowMinutes() + minutes;
-  await instanceRepository.setNotBefore(inst.id, notBefore);
-  return { notBefore: fromMin(Math.min(notBefore, 23 * 60 + 59)) };
+  const value = Number(minutes);
+  assert(Number.isInteger(value) && value >= 0 && value <= LAST_START, 'INVALID_TIME', 'Esa hora no es válida.');
+  const start = Math.round(value / STEP) * STEP;
+  await instanceRepository.setPinnedStart(inst.id, start);
+  return { start: fromMin(start) };
+}
+
+/** Quita la hora elegida a mano: la tarea vuelve a colocarse sola */
+export async function clearInstanceTime(instanceId) {
+  const inst = await pendingToday(instanceId);
+  await instanceRepository.setPinnedStart(inst.id, null);
+}
+
+/**
+ * Retrasa una tarea `minutes` desde su hora planificada (no desde ahora).
+ * @param plannedStart minutos de la hora que tiene ahora en el plan
+ */
+export async function postponeLater(instanceId, plannedStart = null, minutes = 60) {
+  const inst = await pendingToday(instanceId);
+  const base = Math.max(plannedStart ?? 0, nowMinutes());
+  const start = Math.min(Math.ceil((base + minutes) / STEP) * STEP, LAST_START);
+  await instanceRepository.setPinnedStart(inst.id, start);
+  return { start: fromMin(start) };
 }
 
 export async function canMoveToTomorrow(instanceId) {
   const inst = await instanceRepository.findById(instanceId);
   if (!inst || inst.status !== 'pending' || inst.carried >= MAX_CARRY) return false;
   const task = await taskRepository.findById(inst.taskId);
-  return !isDue(task, addDays(todayStr(), 1));
+  const tomorrow = addDays(todayStr(), 1);
+  return !isDue(task, tomorrow) && !isPaused(await loadPauses(), task.id, tomorrow);
 }
 
 export async function moveToTomorrow(instanceId) {
@@ -274,6 +309,7 @@ export async function moveToTomorrow(instanceId) {
   const tomorrow = addDays(inst.date, 1);
   assert(inst.carried < MAX_CARRY, 'MAX_CARRY', 'Ya la has aplazado dos veces. Toca hacerla.');
   assert(!isDue(task, tomorrow), 'DUE_TOMORROW', 'Mañana ya te toca esta tarea.');
+  assert(!isPaused(await loadPauses(), task.id, tomorrow), 'PAUSED_TOMORROW', 'Mañana esta tarea está en pausa.');
 
   await getDb().transaction(async () => {
     await instanceRepository.markMoved(inst.id, tomorrow);

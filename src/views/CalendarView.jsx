@@ -30,7 +30,7 @@ export default function CalendarView({ version, open }) {
         <div className="cal">
           {WEEK.map(d => <div key={d} className="dow">{DOW_SHORT[d]}</div>)}
           {data?.cells.map(cell => {
-            const cls = ['day', cell.status, !cell.inMonth && 'out', cell.isToday && 'today', cell.date === selected && 'sel']
+            const cls = ['day', cell.status, cell.paused && 'in-pause', !cell.inMonth && 'out', cell.isToday && 'today', cell.date === selected && 'sel']
               .filter(Boolean).join(' ');
             return (
               <button key={cell.date} className={cls} aria-label={longDate(cell.date)} onClick={() => setSelected(cell.date)}>
@@ -41,6 +41,8 @@ export default function CalendarView({ version, open }) {
                 <span className="icons">
                   {cell.status === 'wildcard'
                     ? <span>🃏</span>
+                    : cell.paused && !cell.items.length
+                    ? <span>🏖️</span>
                     : cell.items.slice(0, MAX_ICONS).map((it, k) => (
                         <span key={k} className={it.status === 'missed' ? 'x' : ''}>{it.icon}</span>
                       ))}
@@ -57,6 +59,7 @@ export default function CalendarView({ version, open }) {
           <span><i className="lg bad" />No cumplido</span>
           <span><i className="lg wildcard" />Comodín</span>
           <span><i className="lg event" />Evento</span>
+          <span><i className="lg paused" />Pausa</span>
         </div>
       </section>
 

@@ -11,6 +11,7 @@ import { instanceRepository } from '../repositories/instanceRepository.js';
 import { dayRepository } from '../repositories/dayRepository.js';
 import { getSettings } from './settingsService.js';
 import { isDue } from './rules.js';
+import { loadPauses, isActive, isPaused } from './pauseService.js';
 import { todayStr, addDays } from '../utils/dates.js';
 
 const MOVABLE_TYPES = ['interval', 'weekdays', 'once'];
@@ -19,27 +20,28 @@ const COUNTED = ['pending', 'done'];
 
 export const isMovable = (inst, task) =>
   inst.status === 'pending' && MOVABLE_TYPES.includes(task.freq.type) &&
-  !task.time && inst.carried === 0 && !inst.autoMoved;
+  !task.time && inst.carried === 0 && !inst.autoMoved && inst.pinnedStart == null;
 
 /** Minutos de tareas previstos para un día (guardados + los que tocarían) */
 export async function plannedMinutes(date, tasks) {
   const byId = new Map(tasks.map(t => [t.id, t]));
-  const [day, stored] = await Promise.all([dayRepository.get(date), instanceRepository.findByDate(date)]);
+  const [day, stored, pauses] = await Promise.all([dayRepository.get(date), instanceRepository.findByDate(date), loadPauses()]);
   let total = stored
     .filter(i => COUNTED.includes(i.status))
     .reduce((sum, i) => sum + (byId.get(i.taskId)?.duration ?? 0), 0);
   if (!day?.generated) {
     for (const t of tasks) {
-      if (isDue(t, date) && !stored.some(i => i.taskId === t.id && !i.carried)) total += t.duration;
+      if (isActive(pauses, t, date) && !stored.some(i => i.taskId === t.id && !i.carried)) total += t.duration;
     }
   }
   return total;
 }
 
 async function findTargetDay(task, from, max, tasks) {
+  const pauses = await loadPauses();
   for (let k = 1; k <= SEARCH_DAYS; k++) {
     const date = addDays(from, k);
-    if (isDue(task, date) || (await instanceRepository.existsOn(task.id, date))) continue;
+    if (isDue(task, date) || isPaused(pauses, task.id, date) || (await instanceRepository.existsOn(task.id, date))) continue;
     if ((await plannedMinutes(date, tasks)) + task.duration <= max) return date;
   }
   return null;

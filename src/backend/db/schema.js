@@ -3,7 +3,7 @@
  * Cada migración se aplica una sola vez y en orden. Para cambiar el esquema
  * en el futuro, añade una migración nueva (2, 3...) y sube SCHEMA_VERSION.
  */
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 6;
 
 export const MIGRATIONS = {
   1: `
@@ -143,5 +143,37 @@ export const MIGRATIONS = {
 
     ALTER TABLE task_instances ADD COLUMN moved_to TEXT;
     ALTER TABLE task_instances ADD COLUMN auto_moved INTEGER NOT NULL DEFAULT 0;
+  `,
+
+  /** v4: hora elegida a mano para una tarea de un día (arrastrando la hora) */
+  4: `
+    ALTER TABLE task_instances ADD COLUMN pinned_start INTEGER;
+  `,
+
+  /** v5: nota de cada día (de 0 a 10, de medio en medio punto) */
+  5: `
+    CREATE TABLE day_ratings (
+      date       TEXT PRIMARY KEY,
+      score      REAL NOT NULL CHECK (score >= 0 AND score <= 10 AND score * 2 = CAST(score * 2 AS INTEGER)),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    );
+  `,
+
+  /** v6: pausas (vacaciones) y qué tareas quedan en pausa en cada una */
+  6: `
+    CREATE TABLE pauses (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      label      TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date   TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      CHECK (end_date >= start_date)
+    );
+
+    CREATE TABLE pause_tasks (
+      pause_id INTEGER NOT NULL REFERENCES pauses(id) ON DELETE CASCADE,
+      task_id  INTEGER NOT NULL REFERENCES tasks(id),
+      PRIMARY KEY (pause_id, task_id)
+    );
   `
 };

@@ -28,8 +28,6 @@ export const FREQS = [
 export const REPEATING = ['daily', 'interval', 'weekdays'];
 
 export const DURATIONS = [5, 10, 15, 20, 30, 40, 45, 60, 75, 90, 120];
-export const BUSY_SUGGESTIONS = ['Clase', 'Bootcamp', 'Trabajo', 'Médico', 'Entrenamiento', 'Partido de pádel', 'Cumpleaños', 'Cena'];
-
 export const REMINDERS = [
   { value: '', label: 'Sin aviso' },
   { value: 5, label: '5 minutos antes' },
