@@ -2,7 +2,8 @@ name: Generar APK
 
 on:
   push:
-    branches: [main]
+    # dev es la rama de trabajo; main va una versión por detrás
+    branches: [dev, main]
     # Al subir una etiqueta de versión (v0.2.0-alpha...) se publica una release con el APK
     tags: ['v*']
   workflow_dispatch:

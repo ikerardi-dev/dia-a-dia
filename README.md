@@ -52,12 +52,12 @@ clave y puedes instalar versiones nuevas encima sin perder tus datos.
 
 ### Opción B: GitHub Actions (sin instalar Android Studio)
 
-1. Sube el proyecto a un repositorio de GitHub (rama `main`).
+1. Sube el proyecto a un repositorio de GitHub (rama `dev`).
 2. Crea tu clave de firma una sola vez: `bash scripts/create-keystore.sh`
 3. En el repositorio: **Settings > Secrets and variables > Actions** y crea:
    - `ANDROID_KEYSTORE_BASE64`: el texto largo que muestra el script
    - `ANDROID_KEYSTORE_PASSWORD`: tu contraseña
-4. Cada `push` a `main` genera el APK. Lo descargas en la pestaña **Actions**,
+4. Cada `push` a `dev` (o a `main`) genera el APK. Lo descargas en la pestaña **Actions**,
    dentro de la ejecución, en el apartado **Artifacts**.
 
 Sin esos secretos el APK se genera igual, pero cada vez con una clave distinta:
@@ -77,3 +77,9 @@ Guarda `diaadia.jks` y la contraseña fuera del repositorio (están en `.gitigno
 npm run android:sync
 ```
 y vuelve a generar el APK. Tus datos se conservan al instalar encima.
+
+## Ramas
+
+- **`dev`**: la versión actual. Aquí van los cambios y de aquí sale el APK que se instala.
+- **`main`**: va siempre una versión por detrás. Cuando sale una versión nueva en `dev`,
+  `main` se actualiza hasta la anterior.
